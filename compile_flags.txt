@@ -1,0 +1,7 @@
+-I./headers/
+-std=c11
+-Wall
+-Wextra
+-lm
+-lpthread
+-latomic
