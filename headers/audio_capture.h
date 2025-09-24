@@ -2,6 +2,7 @@
 #define TINY_VC_AUDIO_CAPTURE_H
 
 #include "miniaudio.h"
+#include "audio_types.h"
 #include <stddef.h>
 
 /**
@@ -10,36 +11,20 @@
 struct capture_t;
 
 /**
- * Captured data in frames.
- */
-struct capture_data_t {
-  /* Size in Frames. */
-  ma_uint32 sizeInFrames;
-  /* Format of the data. */
-  ma_format format;
-  /* Number of channels in the data. */
-  ma_uint32 channels;
-  /* Size of the buffer. */
-  size_t buffer_len;
-  /* Buffer of PCM frame data. */
-  void* buffer;
-};
-
-/**
- * Initialize Audio Capture structure.
+ * Create Audio Capture structure.
  *
- * @param s Audio Capture structure.
  * @param sizeInFrames Allocate how many frames to be buffered.
- * @return ma_result enum.
+ * @return Newly created capture structure, null on error.
  */
-ma_result capture_init(struct capture_t *s, ma_uint32 sizeInFrames);
+struct capture_t* capture_create(ma_uint32 sizeInFrames);
 
 /**
- * Free Audio capture structure's internals.
+ * Destroy Audio capture structure and free internals.
  *
  * @param s Audio Capture structure.
+ *  This function nulls the parameter out on success.
  */
-void capture_free(struct capture_t *s);
+void capture_destroy(struct capture_t **s);
 
 /**
  * Trigger the start of the audio capture.
@@ -53,11 +38,11 @@ ma_result capture_start(struct capture_t *s);
  * Get the next available captured data.
  *
  * @param s Audio Capture structure.
- * @param cd The structure to populate with the capture data.
- *  This function will initialize this structure. User is responsible for
- *  freeing the buffer.
+ * @param cd The capture data pointer to populate.
+ *  This function will create this structure. User is responsible for
+ *  freeing the buffer. See capture_data_destroy.
  * @return ma_result enum.
  */
-ma_result capture_next_available(struct capture_t *s, struct capture_data_t *cd);
+ma_result capture_next_available(struct capture_t *s, struct capture_data_t **cd);
 
 #endif

@@ -1,9 +1,10 @@
-#include <stddef.h>
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
+#include "audio_types.h"
 #include "audio_capture.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -23,7 +24,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   ma_result result =
       ma_pcm_rb_acquire_write(&s->ring_buffer, &local_frame_count, &buffer);
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "failed to acquire write for ring buffer\n");
+    fprintf(stderr, "failed to acquire write for ring buffer -- error code(%d).\n", result);
     return;
   }
   if (local_frame_count != frameCount) {
@@ -38,15 +39,13 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
 
   result = ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "failed to commit write to ring buffer.\n");
+    fprintf(stderr, "failed to commit write to ring buffer -- error code(%d).\n", result);
     return;
   }
 }
 
-ma_result capture_init(struct capture_t *s, ma_uint32 sizeInFrames) {
-  if (s == NULL) {
-    return MA_NO_DATA_AVAILABLE;
-  }
+struct capture_t* capture_create(ma_uint32 sizeInFrames) {
+  struct capture_t* s = malloc(sizeof(struct capture_t));
   s->sizeInFrames = sizeInFrames;
   s->d_config = ma_device_config_init(ma_device_type_capture);
   s->d_config.capture.pDeviceID = NULL;
@@ -57,7 +56,9 @@ ma_result capture_init(struct capture_t *s, ma_uint32 sizeInFrames) {
   s->d_config.pUserData = s;
   ma_result result = ma_device_init(NULL, &s->d_config, &s->device);
   if (result != MA_SUCCESS) {
-    return result;
+    fprintf(stderr, "miniaudio device init error code(%d)\n", result);
+    free(s);
+    return NULL;
   }
   result = ma_pcm_rb_init(ma_format_f32,   // format
                           1,               // channels
@@ -67,17 +68,25 @@ ma_result capture_init(struct capture_t *s, ma_uint32 sizeInFrames) {
                           &s->ring_buffer  // the ring buffer
   );
   if (result != MA_SUCCESS) {
+    fprintf(stderr, "miniaudio device init error code(%d)\n", result);
     ma_device_uninit(&s->device);
-    return result;
+    free(s);
+    return NULL;
   }
-  return result;
+  return s;
 }
 
-void capture_free(struct capture_t *s) {
+void capture_destroy(struct capture_t **s) {
   if (s == NULL) {
     return;
   }
-  ma_device_uninit(&s->device);
+  if ((*s) == NULL) {
+    return;
+  }
+  ma_device_uninit(&(*s)->device);
+  ma_pcm_rb_uninit(&(*s)->ring_buffer);
+  free(*s);
+  *s = NULL;
 }
 
 ma_result capture_start(struct capture_t *s) {
@@ -88,28 +97,31 @@ ma_result capture_start(struct capture_t *s) {
 }
 
 ma_result capture_next_available(struct capture_t *s,
-                                 struct capture_data_t *cd) {
-  cd->sizeInFrames = s->sizeInFrames;
+                                 struct capture_data_t **cd) {
+  ma_uint32 sizeInFrames = s->sizeInFrames;
   void *out_buffer = NULL;
   ma_result result =
-      ma_pcm_rb_acquire_read(&s->ring_buffer, &cd->sizeInFrames, &out_buffer);
+      ma_pcm_rb_acquire_read(&s->ring_buffer, &sizeInFrames, &out_buffer);
   if (result != MA_SUCCESS) {
     return result;
   }
-  if (cd->sizeInFrames == 0) {
+  if (sizeInFrames == 0) {
     (void)ma_pcm_rb_commit_read(&s->ring_buffer, 0);
     return MA_NO_DATA_AVAILABLE;
   }
   size_t len =
-      (cd->sizeInFrames * ma_get_bytes_per_frame(s->device.capture.format,
+      (sizeInFrames * ma_get_bytes_per_frame(s->device.capture.format,
                                                  s->device.capture.channels));
-  cd->buffer = malloc(sizeof(out_buffer[0]) * len);
-  if (cd->buffer == NULL) {
+  struct capture_data_t *local_cd = capture_data_create();
+  local_cd->sizeInFrames = sizeInFrames;
+  local_cd->buffer = malloc(sizeof(out_buffer[0]) * len);
+  if (local_cd->buffer == NULL) {
     return MA_NO_ADDRESS;
   }
-  MA_COPY_MEMORY(cd->buffer, out_buffer, len);
-  cd->channels = s->device.capture.channels;
-  cd->format = s->device.capture.format;
-  cd->buffer_len = len;
-  return ma_pcm_rb_commit_read(&s->ring_buffer, cd->sizeInFrames);
+  MA_COPY_MEMORY(local_cd->buffer, out_buffer, len);
+  local_cd->channels = s->device.capture.channels;
+  local_cd->format = s->device.capture.format;
+  local_cd->buffer_len = len;
+  *cd = local_cd;
+  return ma_pcm_rb_commit_read(&s->ring_buffer, local_cd->sizeInFrames);
 }
