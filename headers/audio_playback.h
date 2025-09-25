@@ -38,11 +38,8 @@ ma_result playback_start(struct playback_t *s);
  *
  * @param s Audio Playback structure.
  * @param cd The structure to use for playback data.
- *  This function moves the data to take ownership.
- *  If the function fails the parameter is not nulled out and the User is
- *  responsible for freeing the data.
  * @return ma_result enum.
  */
-ma_result playback_queue(struct playback_t *s, struct capture_data_t **cd);
+ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd);
 
 #endif

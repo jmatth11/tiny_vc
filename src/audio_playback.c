@@ -1,8 +1,8 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
-#include "audio_types.h"
 #include "audio_playback.h"
+#include "audio_types.h"
 
 struct playback_t {
   ma_uint32 sizeInFrames;
@@ -13,6 +13,27 @@ struct playback_t {
 
 static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                           ma_uint32 frameCount) {
+  (void)pInput;
+  struct playback_t *p = (struct playback_t *)pDevice->pUserData;
+  ma_uint32 frames = frameCount;
+  void *buffer = NULL;
+  ma_result result = ma_pcm_rb_acquire_read(&p->ring_buffer, &frames, &buffer);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr,
+            "failed to acquire read for ring buffer -- error code(%d).\n",
+            result);
+    return;
+  }
+  MA_COPY_MEMORY(pOutput, buffer,
+                 frames * ma_get_bytes_per_frame(pDevice->playback.format,
+                                                 pDevice->playback.channels));
+  result = ma_pcm_rb_commit_read(&p->ring_buffer, frames);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr,
+            "failed to commit read for ring buffer -- error code(%d).\n",
+            result);
+    return;
+  }
 }
 
 /**
@@ -21,8 +42,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
  * @param sizeInFrames Allocate how many frames to be buffered.
  * @return ma_result enum.
  */
-struct playback_t* playback_create(ma_uint32 sizeInFrames) {
-  struct playback_t* p = malloc(sizeof(struct playback_t));
+struct playback_t *playback_create(ma_uint32 sizeInFrames) {
+  struct playback_t *p = malloc(sizeof(struct playback_t));
   p->sizeInFrames = sizeInFrames;
   p->d_config = ma_device_config_init(ma_device_type_playback);
   p->d_config.playback.pDeviceID = NULL;
@@ -66,7 +87,8 @@ void playback_destroy(struct playback_t **s) {
   if ((*s) == NULL) {
     return;
   }
-
+  ma_device_uninit(&(*s)->device);
+  ma_pcm_rb_uninit(&(*s)->ring_buffer);
   free(*s);
   *s = NULL;
 }
@@ -78,8 +100,7 @@ void playback_destroy(struct playback_t **s) {
  * @return ma_result enum.
  */
 ma_result playback_start(struct playback_t *s) {
-
-  return MA_SUCCESS;
+  return ma_device_start(&s->device);
 }
 
 /**
@@ -87,12 +108,19 @@ ma_result playback_start(struct playback_t *s) {
  *
  * @param s Audio Playback structure.
  * @param cd The structure to use for playback data.
- *  This function moves the data to take ownership.
- *  If the function fails the parameter is not nulled out and the User is
- *  responsible for freeing the data.
  * @return ma_result enum.
  */
-ma_result playback_queue(struct playback_t *s, struct capture_data_t **cd) {
-
-  return MA_SUCCESS;
+ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd) {
+  ma_uint32 frames = cd->sizeInFrames;
+  void *buffer = NULL;
+  ma_result result = ma_pcm_rb_acquire_write(&s->ring_buffer, &frames, &buffer);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr,
+            "failed to acquire write for ring buffer -- error code(%d).\n",
+            result);
+    return result;
+  }
+  MA_COPY_MEMORY(buffer, cd->buffer,
+                 frames * ma_get_bytes_per_frame(cd->format, cd->channels));
+  return ma_pcm_rb_commit_write(&s->ring_buffer, frames);
 }
