@@ -123,6 +123,7 @@ ma_result capture_next_available(struct capture_t *s,
   local_cd->sizeInFrames = sizeInFrames;
   local_cd->buffer = malloc(sizeof(out_buffer[0]) * len);
   if (local_cd->buffer == NULL) {
+    capture_data_destroy(&local_cd);
     return MA_NO_ADDRESS;
   }
   MA_COPY_MEMORY(local_cd->buffer, out_buffer, len);

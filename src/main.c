@@ -26,17 +26,21 @@ int main(void) {
   while (running) {
     struct capture_data_t *data = NULL;
     ma_result result = capture_next_available(cap, &data);
-    if (result != MA_SUCCESS) {
+    if (result != MA_SUCCESS && result != MA_NO_DATA_AVAILABLE) {
       fprintf(stderr, "next_available failed: %d\n", result);
       running = 0;
       break;
     }
-    result = playback_queue(play, data);
-    if (result != MA_SUCCESS) {
-      fprintf(stderr, "playback_queue failed: %d\n", result);
-      running = 0;
+    if (data != NULL) {
+      result = playback_queue(play, data);
+      if (result != MA_SUCCESS && result != MA_NO_DATA_AVAILABLE) {
+        fprintf(stderr, "playback_queue failed: %d\n", result);
+        running = 0;
+      }
+      capture_data_destroy(&data);
+    } else {
+        fprintf(stderr, "capture data was null\n");
     }
-    capture_data_destroy(&data);
   }
 
   capture_destroy(&cap);
