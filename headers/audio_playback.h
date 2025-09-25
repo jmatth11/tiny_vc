@@ -1,7 +1,6 @@
 #ifndef TINY_VC_AUDIO_PLAYBACK_H
 #define TINY_VC_AUDIO_PLAYBACK_H
 
-#include "miniaudio.h"
 #include "audio_types.h"
 
 /**
