@@ -5,7 +5,7 @@
 #include "audio_playback.h"
 #include "audio_types.h"
 
-const ma_uint32 frame_count = (1102 * 2);
+const ma_uint32 frame_count = (1102 * 4);
 static int running = 1;
 
 void sigint_handler(int signo) {
