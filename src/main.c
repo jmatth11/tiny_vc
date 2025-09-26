@@ -5,6 +5,7 @@
 #include "audio_playback.h"
 #include "audio_types.h"
 
+const ma_uint32 frame_count = (1102 * 2);
 static int running = 1;
 
 void sigint_handler(int signo) {
@@ -14,8 +15,8 @@ void sigint_handler(int signo) {
 }
 
 int main(void) {
-  struct capture_t *cap = capture_create(4);
-  struct playback_t *play = playback_create(4);
+  struct capture_t *cap = capture_create(frame_count);
+  struct playback_t *play = playback_create(frame_count);
   if (cap == NULL || play == NULL) {
     fprintf(stderr, "creation failed.\n");
     return -1;
@@ -39,7 +40,7 @@ int main(void) {
       }
       capture_data_destroy(&data);
     } else {
-        fprintf(stderr, "capture data was null\n");
+        //fprintf(stderr, "capture data was null\n");
     }
   }
 

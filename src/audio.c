@@ -1,8 +1,8 @@
 #define MINIAUDIO_IMPLEMENTATION 1
-#include "miniaudio.h"
-#include "audio_types.h"
 #include "audio_capture.h"
 #include "audio_playback.h"
+#include "audio_types.h"
+#include "miniaudio.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -31,7 +31,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   ma_result result =
       ma_pcm_rb_acquire_write(&s->ring_buffer, &local_frame_count, &buffer);
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "failed to acquire write for ring buffer -- error code(%d).\n", result);
+    fprintf(stderr,
+            "failed to acquire write for ring buffer -- error code(%d).\n",
+            result);
     return;
   }
   if (local_frame_count != frameCount) {
@@ -39,20 +41,23 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
             "frameCount(%d) was higher than available rb_frameCount(%d)\n",
             frameCount, local_frame_count);
   }
-  MA_COPY_MEMORY(buffer, pInput,
-                 local_frame_count *
-                     ma_get_bytes_per_frame(pDevice->capture.format,
-                                            pDevice->capture.channels));
 
+  ma_copy_pcm_frames(buffer,
+                     ma_offset_pcm_frames_const_ptr_f32(
+                         (const float *)pInput, 0, pDevice->capture.channels),
+                     local_frame_count, pDevice->capture.format,
+                     pDevice->capture.channels);
   result = ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "failed to commit write to ring buffer -- error code(%d).\n", result);
+    fprintf(stderr,
+            "failed to commit write to ring buffer -- error code(%d).\n",
+            result);
     return;
   }
 }
 
-struct capture_t* capture_create(ma_uint32 sizeInFrames) {
-  struct capture_t* s = malloc(sizeof(struct capture_t));
+struct capture_t *capture_create(ma_uint32 sizeInFrames) {
+  struct capture_t *s = malloc(sizeof(struct capture_t));
   s->sizeInFrames = sizeInFrames;
   s->d_config = ma_device_config_init(ma_device_type_capture);
   s->d_config.capture.pDeviceID = NULL;
@@ -118,7 +123,7 @@ ma_result capture_next_available(struct capture_t *s,
   }
   size_t len =
       (sizeInFrames * ma_get_bytes_per_frame(s->device.capture.format,
-                                                 s->device.capture.channels));
+                                             s->device.capture.channels));
   struct capture_data_t *local_cd = capture_data_create();
   local_cd->sizeInFrames = sizeInFrames;
   local_cd->buffer = malloc(sizeof(out_buffer[0]) * len);
@@ -126,7 +131,11 @@ ma_result capture_next_available(struct capture_t *s,
     capture_data_destroy(&local_cd);
     return MA_NO_ADDRESS;
   }
-  MA_COPY_MEMORY(local_cd->buffer, out_buffer, len);
+  ma_copy_pcm_frames(local_cd->buffer,
+                     ma_offset_pcm_frames_const_ptr_f32(
+                         (const float *)out_buffer, 0, s->device.capture.channels),
+                     sizeInFrames, s->device.capture.format,
+                     s->device.capture.channels);
   local_cd->channels = s->device.capture.channels;
   local_cd->format = s->device.capture.format;
   local_cd->buffer_len = len;
@@ -145,8 +154,8 @@ ma_result capture_next_available(struct capture_t *s,
  * *********************************************************************************
  */
 
-static void playback_data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
-                          ma_uint32 frameCount) {
+static void playback_data_callback(ma_device *pDevice, void *pOutput,
+                                   const void *pInput, ma_uint32 frameCount) {
   (void)pInput;
   struct playback_t *p = (struct playback_t *)pDevice->pUserData;
   ma_uint32 frames = frameCount;
@@ -158,6 +167,11 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput, const void
             result);
     return;
   }
+  ma_copy_pcm_frames(pOutput,
+                     ma_offset_pcm_frames_const_ptr_f32(
+                         (const float *)buffer, 0, pDevice->capture.channels),
+                     frames, pDevice->capture.format,
+                     pDevice->capture.channels);
   MA_COPY_MEMORY(pOutput, buffer,
                  frames * ma_get_bytes_per_frame(pDevice->playback.format,
                                                  pDevice->playback.channels));
@@ -254,7 +268,10 @@ ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd) {
             result);
     return result;
   }
-  MA_COPY_MEMORY(buffer, cd->buffer,
-                 frames * ma_get_bytes_per_frame(cd->format, cd->channels));
+  ma_copy_pcm_frames(buffer,
+                     ma_offset_pcm_frames_const_ptr_f32(
+                         (const float *)cd->buffer, 0, cd->channels),
+                     frames, cd->format,
+                     cd->channels);
   return ma_pcm_rb_commit_write(&s->ring_buffer, frames);
 }
