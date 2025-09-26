@@ -1,5 +1,32 @@
 const std = @import("std");
 
+fn build_audio_lib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+    const files: []const []const u8 = &.{
+        "audio/src/audio.c",
+        "audio/src/audio_types.c",
+    };
+    const flags: []const []const u8 = &.{
+        "-Wall",
+        "-std=c11",
+    };
+    const audio_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .pic = true,
+        .link_libc = true,
+    });
+    audio_mod.addIncludePath(b.path("./audio/headers/"));
+    audio_mod.addCSourceFiles(.{
+        .files = files,
+        .language = .c,
+        .flags = flags,
+    });
+    audio_mod.linkSystemLibrary("m", .{.needed = true});
+    audio_mod.linkSystemLibrary("pthread", .{.needed = true});
+    audio_mod.linkSystemLibrary("atomic", .{.needed = true});
+    return audio_mod;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -30,6 +57,14 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    // build and include audio lib
+    const audio_mod = build_audio_lib(b, target, optimize);
+    const audio_lib = b.addLibrary(.{
+        .name = "audio",
+        .root_module = audio_mod
+    });
+    exe.addIncludePath(b.path("./audio/headers/"));
+    exe.linkLibrary(audio_lib);
 
     b.installArtifact(exe);
 
