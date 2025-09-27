@@ -47,27 +47,36 @@ fn handle_capture(info: *Info) void {
             // if we encounter an error, lets wait a time before trying again.
             const wait_info: std.c.timespec = .{
                 .sec = 0,
-                .nsec = std.time.milliTimestamp * 250,
+                .nsec = std.time.ns_per_ms * 250,
             };
             _ = std.c.nanosleep(&wait_info, null);
         }
-        if (cd_opt) |cd| {
-            if (cd.buffer) |buf| {
+        if (cd_opt) |*cd| {
+            if (cd.*.buffer) |buf| {
                 // TODO convert to json to pass along all info inside capture_data_t
                 const converted_buffer: [*]const u8 = @ptrCast(@alignCast(buf));
-                const msg: chebi.message.Message = .init_with_body(std.heap.smp_allocator, info.conf, converted_buffer[0..cd.buffer_len], .bin);
-                info.c.write_msg(msg) catch |err| {
-                    std.debug.print("write capture msg failed: {any}\n", .{err});
-                };
-                msg.deinit();
+                if (chebi.message.Message.init_with_body(
+                    std.heap.smp_allocator,
+                    info.conf.topic,
+                    converted_buffer[0..cd.*.buffer_len],
+                    .bin,
+                )) |msg| {
+                    var local_msg: chebi.message.Message = msg;
+                    info.c.write_msg(&local_msg) catch |err| {
+                        std.debug.print("write capture msg failed: {any}\n", .{err});
+                    };
+                    local_msg.deinit();
+                } else |err| {
+                    std.debug.print("init_with_body failed: {any}\n", .{err});
+                }
             }
-            audio.capture_data_destroy(&cd);
+            audio.capture_data_destroy(@ptrCast(cd));
         }
     }
 }
 
 pub fn main() !void {
-    const conf = try config.config(std.heap.smp_allocator);
+    var conf = try config.config(std.heap.smp_allocator);
     defer conf.deinit();
 
     defer g_info.stop();
@@ -111,12 +120,13 @@ pub fn main() !void {
     }
 
     while (g_info.running) {
-        const msg = try g_info.c.next_msg();
+        var msg = try g_info.c.next_msg();
         defer msg.deinit();
         if (msg.payload) |payload| {
             // TODO convert to unmarsheling json to get all g_info inside capture_data_t
-            const data = audio.capture_data_create();
-            data.*.buffer = payload.ptr;
+            var data = audio.capture_data_create();
+            const cd_buffer: []u8 = try std.heap.c_allocator.dupe(u8, payload);
+            data.*.buffer = @ptrCast(cd_buffer.ptr);
             data.*.buffer_len = payload.len;
             data.*.channels = 1;
             data.*.format = audio.ma_format_f32;
@@ -125,7 +135,6 @@ pub fn main() !void {
             if (queue_result != audio.MA_SUCCESS) {
                 std.debug.print("playback_queue failed: code({})\n", .{queue_result});
             }
-            data.*.buffer = null;
             audio.capture_data_destroy(&data);
         }
     }
