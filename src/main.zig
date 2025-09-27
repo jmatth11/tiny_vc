@@ -55,10 +55,11 @@ fn handle_capture(info: *Info) void {
             if (cd.*.buffer) |buf| {
                 // TODO convert to json to pass along all info inside capture_data_t
                 const converted_buffer: [*]const u8 = @ptrCast(@alignCast(buf));
+                const payload: []const u8 = converted_buffer[0..cd.*.buffer_len];
                 if (chebi.message.Message.init_with_body(
                     std.heap.smp_allocator,
                     info.conf.topic,
-                    converted_buffer[0..cd.*.buffer_len],
+                    payload,
                     .bin,
                 )) |msg| {
                     var local_msg: chebi.message.Message = msg;
@@ -80,6 +81,7 @@ pub fn main() !void {
     defer conf.deinit();
 
     defer g_info.stop();
+    g_info.conf = conf;
 
     const empty_sig: [16]c_ulong = @splat(0);
     _ = std.c.sigaction(std.c.SIG.INT, &.{
@@ -88,9 +90,6 @@ pub fn main() !void {
         .flags = 0,
     }, null);
 
-    _ = try std.Thread.spawn(.{
-        .allocator = std.heap.smp_allocator,
-    }, handle_capture, .{&g_info});
     const addr = try std.net.Address.parseIp4(conf.ip, conf.port);
     var c = try client.Client.init(std.heap.smp_allocator, addr);
     defer c.deinit();
@@ -108,6 +107,9 @@ pub fn main() !void {
     if (playback_opt) |play| {
         g_info.play = play;
     }
+    _ = try std.Thread.spawn(.{
+        .allocator = std.heap.smp_allocator,
+    }, handle_capture, .{&g_info});
     var result: audio.ma_result = audio.capture_start(g_info.cap);
     if (result != audio.MA_SUCCESS) {
         std.debug.print("capture failed to start: code({})\n", .{result});

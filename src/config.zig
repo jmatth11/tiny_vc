@@ -49,6 +49,6 @@ pub fn config(alloc: std.mem.Allocator) !Config {
     if (res.args.topic) |topic| {
         conf.topic = try alloc.dupe(u8, topic);
     }
-
+    std.log.info("configuration loaded: ip = {s}, port = {}, topic = {s}\n", .{conf.ip, conf.port, conf.topic});
     return conf;
 }
