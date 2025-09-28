@@ -40,12 +40,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     fprintf(stderr,
             "frameCount(%d) was higher than available rb_frameCount(%d)\n",
             frameCount, local_frame_count);
+    return;
   }
 
-  ma_copy_pcm_frames(buffer,
-                     ma_offset_pcm_frames_const_ptr_f32(
-                         (const float *)pInput, 0, pDevice->capture.channels),
-                     local_frame_count, pDevice->capture.format,
+  ma_copy_pcm_frames(buffer, pInput, local_frame_count, pDevice->capture.format,
                      pDevice->capture.channels);
   result = ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
   if (result != MA_SUCCESS) {
@@ -131,11 +129,8 @@ ma_result capture_next_available(struct capture_t *s,
     capture_data_destroy(&local_cd);
     return MA_NO_ADDRESS;
   }
-  ma_copy_pcm_frames(local_cd->buffer,
-                     ma_offset_pcm_frames_const_ptr_f32(
-                         (const float *)out_buffer, 0, s->device.capture.channels),
-                     sizeInFrames, s->device.capture.format,
-                     s->device.capture.channels);
+  ma_copy_pcm_frames(local_cd->buffer, out_buffer, sizeInFrames,
+                     s->device.capture.format, s->device.capture.channels);
   local_cd->channels = s->device.capture.channels;
   local_cd->format = s->device.capture.format;
   local_cd->buffer_len = len;
@@ -268,10 +263,6 @@ ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd) {
             result);
     return result;
   }
-  ma_copy_pcm_frames(buffer,
-                     ma_offset_pcm_frames_const_ptr_f32(
-                         (const float *)cd->buffer, 0, cd->channels),
-                     frames, cd->format,
-                     cd->channels);
+  ma_copy_pcm_frames(buffer, cd->buffer, frames, cd->format, cd->channels);
   return ma_pcm_rb_commit_write(&s->ring_buffer, frames);
 }

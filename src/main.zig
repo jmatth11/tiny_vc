@@ -14,7 +14,7 @@ const Error = error{
     capture_start_failed,
 };
 
-const frameSize: comptime_int = (1102 * 4);
+const frameSize: comptime_int = (472 * 4);
 const Info = struct {
     running: bool = true,
     cap: *audio.capture_t,
