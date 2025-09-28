@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 struct capture_t {
+  ma_uint32 periodSize;
   ma_uint32 sizeInFrames;
   ma_device_config d_config;
   ma_device device;
@@ -16,6 +17,7 @@ struct capture_t {
 };
 
 struct playback_t {
+  ma_uint32 periodSize;
   ma_uint32 sizeInFrames;
   ma_device_config d_config;
   ma_device device;
@@ -56,6 +58,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
 
 struct capture_t *capture_create(ma_uint32 periodSize) {
   struct capture_t *s = malloc(sizeof(struct capture_t));
+  s->periodSize = periodSize;
   s->d_config = ma_device_config_init(ma_device_type_capture);
   s->d_config.capture.pDeviceID = NULL;
   s->d_config.capture.format = ma_format_f32;
@@ -110,7 +113,7 @@ ma_result capture_start(struct capture_t *s) {
 
 ma_result capture_next_available(struct capture_t *s,
                                  struct capture_data_t **cd) {
-  ma_uint32 sizeInFrames = s->sizeInFrames;
+  ma_uint32 sizeInFrames = s->sizeInFrames * s->periodSize;
   void *out_buffer = NULL;
   ma_result result =
       ma_pcm_rb_acquire_read(&s->ring_buffer, &sizeInFrames, &out_buffer);
@@ -164,8 +167,8 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
             result);
     return;
   }
-  ma_copy_pcm_frames(pOutput, buffer, frames, pDevice->capture.format,
-                     pDevice->capture.channels);
+  ma_copy_pcm_frames(pOutput, buffer, frames, pDevice->playback.format,
+                     pDevice->playback.channels);
   result = ma_pcm_rb_commit_read(&p->ring_buffer, frames);
   if (result != MA_SUCCESS) {
     fprintf(stderr,
@@ -177,6 +180,7 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
 
 struct playback_t *playback_create(ma_uint32 periodSize) {
   struct playback_t *p = malloc(sizeof(struct playback_t));
+  p->periodSize = periodSize;
   p->d_config = ma_device_config_init(ma_device_type_playback);
   p->d_config.playback.pDeviceID = NULL;
   p->d_config.playback.format = ma_format_f32;
@@ -205,6 +209,7 @@ struct playback_t *playback_create(ma_uint32 periodSize) {
     free(p);
     return NULL;
   }
+  ma_pcm_rb_set_sample_rate(&p->ring_buffer, p->d_config.sampleRate);
   return p;
 }
 
