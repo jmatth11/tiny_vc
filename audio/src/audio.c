@@ -40,7 +40,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   }
   if (local_frame_count != frameCount) {
     fprintf(stderr,
-            "frameCount(%d) was higher than available rb_frameCount(%d) -- dropping data.\n",
+            "frameCount(%d) was higher than available rb_frameCount(%d) -- "
+            "dropping data.\n",
             frameCount, local_frame_count);
     return;
   }
@@ -82,7 +83,8 @@ struct capture_t *capture_create(ma_uint32 periodSize) {
                           &s->ring_buffer               // the ring buffer
   );
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "capture: miniaudio ring buffer init error code(%d)\n", result);
+    fprintf(stderr, "capture: miniaudio ring buffer init error code(%d)\n",
+            result);
     ma_device_uninit(&s->device);
     free(s);
     return NULL;
@@ -204,7 +206,8 @@ struct playback_t *playback_create(ma_uint32 periodSize) {
                           &p->ring_buffer               // the ring buffer
   );
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "playback: miniaudio ring buffer init error code(%d)\n", result);
+    fprintf(stderr, "playback: miniaudio ring buffer init error code(%d)\n",
+            result);
     ma_device_uninit(&p->device);
     free(p);
     return NULL;
@@ -258,6 +261,10 @@ ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd) {
             "failed to acquire write for ring buffer -- error code(%d).\n",
             result);
     return result;
+  }
+  if (frames != cd->sizeInFrames) {
+    fprintf(stderr, "playback: incoming frames (%d); ring_buffer frames (%d)\n",
+            cd->sizeInFrames, frames);
   }
   ma_copy_pcm_frames(buffer, cd->buffer, frames, cd->format, cd->channels);
   return ma_pcm_rb_commit_write(&s->ring_buffer, frames);

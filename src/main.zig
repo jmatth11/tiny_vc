@@ -96,7 +96,7 @@ fn handle_capture(info: *Info) void {
                             std.debug.print("init_with_body failed: {any}\n", .{err});
                         }
                     } else {
-                        std.debug.print("failed to encode capture_data.\n", .{});
+                        std.debug.print("failed to marshal capture_data.\n", .{});
                     }
                 } else {
                     std.debug.print("failed to encode capture_data.\n", .{});
