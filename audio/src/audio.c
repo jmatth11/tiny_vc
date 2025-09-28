@@ -38,7 +38,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   }
   if (local_frame_count != frameCount) {
     fprintf(stderr,
-            "frameCount(%d) was higher than available rb_frameCount(%d)\n",
+            "frameCount(%d) was higher than available rb_frameCount(%d) -- dropping data.\n",
             frameCount, local_frame_count);
     return;
   }
@@ -54,9 +54,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   }
 }
 
-struct capture_t *capture_create(ma_uint32 sizeInFrames) {
+struct capture_t *capture_create(ma_uint32 periodSize) {
   struct capture_t *s = malloc(sizeof(struct capture_t));
-  s->sizeInFrames = sizeInFrames;
   s->d_config = ma_device_config_init(ma_device_type_capture);
   s->d_config.capture.pDeviceID = NULL;
   s->d_config.capture.format = ma_format_f32;
@@ -66,23 +65,26 @@ struct capture_t *capture_create(ma_uint32 sizeInFrames) {
   s->d_config.pUserData = s;
   ma_result result = ma_device_init(NULL, &s->d_config, &s->device);
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "miniaudio device init error code(%d)\n", result);
+    fprintf(stderr, "capture: miniaudio device init error code(%d)\n", result);
     free(s);
     return NULL;
   }
-  result = ma_pcm_rb_init(ma_format_f32,   // format
-                          1,               // channels
-                          s->sizeInFrames, // size in Frames
-                          NULL,            // data to prepopulate
-                          NULL,            // allocation callback
-                          &s->ring_buffer  // the ring buffer
+  s->sizeInFrames = s->device.capture.internalPeriodSizeInFrames;
+  printf("sizeInFrames = %d\n", s->sizeInFrames);
+  result = ma_pcm_rb_init(ma_format_f32,                // format
+                          1,                            // channels
+                          s->sizeInFrames * periodSize, // size in Frames
+                          NULL,                         // data to prepopulate
+                          NULL,                         // allocation callback
+                          &s->ring_buffer               // the ring buffer
   );
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "miniaudio device init error code(%d)\n", result);
+    fprintf(stderr, "capture: miniaudio ring buffer init error code(%d)\n", result);
     ma_device_uninit(&s->device);
     free(s);
     return NULL;
   }
+  ma_pcm_rb_set_sample_rate(&s->ring_buffer, s->d_config.sampleRate);
   return s;
 }
 
@@ -162,14 +164,8 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
             result);
     return;
   }
-  ma_copy_pcm_frames(pOutput,
-                     ma_offset_pcm_frames_const_ptr_f32(
-                         (const float *)buffer, 0, pDevice->capture.channels),
-                     frames, pDevice->capture.format,
+  ma_copy_pcm_frames(pOutput, buffer, frames, pDevice->capture.format,
                      pDevice->capture.channels);
-  MA_COPY_MEMORY(pOutput, buffer,
-                 frames * ma_get_bytes_per_frame(pDevice->playback.format,
-                                                 pDevice->playback.channels));
   result = ma_pcm_rb_commit_read(&p->ring_buffer, frames);
   if (result != MA_SUCCESS) {
     fprintf(stderr,
@@ -179,15 +175,8 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
   }
 }
 
-/**
- * Create Audio Playback structure.
- *
- * @param sizeInFrames Allocate how many frames to be buffered.
- * @return ma_result enum.
- */
-struct playback_t *playback_create(ma_uint32 sizeInFrames) {
+struct playback_t *playback_create(ma_uint32 periodSize) {
   struct playback_t *p = malloc(sizeof(struct playback_t));
-  p->sizeInFrames = sizeInFrames;
   p->d_config = ma_device_config_init(ma_device_type_playback);
   p->d_config.playback.pDeviceID = NULL;
   p->d_config.playback.format = ma_format_f32;
@@ -197,19 +186,21 @@ struct playback_t *playback_create(ma_uint32 sizeInFrames) {
   p->d_config.pUserData = p;
   ma_result result = ma_device_init(NULL, &p->d_config, &p->device);
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "miniaudio device init error code(%d)\n", result);
+    fprintf(stderr, "playback: miniaudio device init error code(%d)\n", result);
     free(p);
     return NULL;
   }
-  result = ma_pcm_rb_init(ma_format_f32,   // format
-                          1,               // channels
-                          p->sizeInFrames, // size in Frames
-                          NULL,            // data to prepopulate
-                          NULL,            // allocation callback
-                          &p->ring_buffer  // the ring buffer
+  p->sizeInFrames = p->device.playback.internalPeriodSizeInFrames;
+  printf("sizeInFrames = %d\n", p->sizeInFrames);
+  result = ma_pcm_rb_init(ma_format_f32,                // format
+                          1,                            // channels
+                          p->sizeInFrames * periodSize, // size in Frames
+                          NULL,                         // data to prepopulate
+                          NULL,                         // allocation callback
+                          &p->ring_buffer               // the ring buffer
   );
   if (result != MA_SUCCESS) {
-    fprintf(stderr, "miniaudio device init error code(%d)\n", result);
+    fprintf(stderr, "playback: miniaudio ring buffer init error code(%d)\n", result);
     ma_device_uninit(&p->device);
     free(p);
     return NULL;

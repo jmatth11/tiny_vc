@@ -12,10 +12,10 @@ struct capture_t;
 /**
  * Create Audio Capture structure.
  *
- * @param sizeInFrames Allocate how many frames to be buffered.
+ * @param periodSize Allocate how many periods to be buffered.
  * @return Newly created capture structure, null on error.
  */
-struct capture_t* capture_create(ma_uint32 sizeInFrames);
+struct capture_t* capture_create(ma_uint32 peirodSize);
 
 /**
  * Destroy Audio capture structure and free internals.

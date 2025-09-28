@@ -11,10 +11,10 @@ struct playback_t;
 /**
  * Create Audio Playback structure.
  *
- * @param sizeInFrames Allocate how many frames to be buffered.
+ * @param periodSize Allocate how many periods to be buffered.
  * @return ma_result enum.
  */
-struct playback_t* playback_create(ma_uint32 sizeInFrames);
+struct playback_t* playback_create(ma_uint32 periodSize);
 
 /**
  * Destroy Audio playback structure and free internals.
