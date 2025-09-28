@@ -62,7 +62,7 @@ struct capture_t *capture_create(ma_uint32 periodSize) {
   s->periodSize = periodSize;
   s->d_config = ma_device_config_init(ma_device_type_capture);
   s->d_config.capture.pDeviceID = NULL;
-  s->d_config.capture.format = ma_format_f32;
+  s->d_config.capture.format = ma_format_s16;
   s->d_config.capture.channels = 1;
   s->d_config.sampleRate = 44100;
   s->d_config.dataCallback = data_callback;
@@ -75,7 +75,7 @@ struct capture_t *capture_create(ma_uint32 periodSize) {
   }
   s->sizeInFrames = s->device.capture.internalPeriodSizeInFrames;
   printf("sizeInFrames = %d\n", s->sizeInFrames);
-  result = ma_pcm_rb_init(ma_format_f32,                // format
+  result = ma_pcm_rb_init(ma_format_s16,                // format
                           1,                            // channels
                           s->sizeInFrames * periodSize, // size in Frames
                           NULL,                         // data to prepopulate
@@ -185,7 +185,7 @@ struct playback_t *playback_create(ma_uint32 periodSize) {
   p->periodSize = periodSize;
   p->d_config = ma_device_config_init(ma_device_type_playback);
   p->d_config.playback.pDeviceID = NULL;
-  p->d_config.playback.format = ma_format_f32;
+  p->d_config.playback.format = ma_format_s16;
   p->d_config.playback.channels = 1;
   p->d_config.sampleRate = 44100;
   p->d_config.dataCallback = playback_data_callback;
@@ -198,7 +198,7 @@ struct playback_t *playback_create(ma_uint32 periodSize) {
   }
   p->sizeInFrames = p->device.playback.internalPeriodSizeInFrames;
   printf("sizeInFrames = %d\n", p->sizeInFrames);
-  result = ma_pcm_rb_init(ma_format_f32,                // format
+  result = ma_pcm_rb_init(ma_format_s16,                // format
                           1,                            // channels
                           p->sizeInFrames * periodSize, // size in Frames
                           NULL,                         // data to prepopulate
