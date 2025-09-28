@@ -1,3 +1,5 @@
+#include <math.h>
+#include <stdint.h>
 #define MINIAUDIO_IMPLEMENTATION 1
 #include "audio_capture.h"
 #include "audio_playback.h"
@@ -28,6 +30,18 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                           ma_uint32 frameCount) {
   (void)pOutput;
   struct capture_t *s = (struct capture_t *)pDevice->pUserData;
+  uint16_t *raw_data = (uint16_t*)pInput;
+  const size_t data_len = frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+  double volume = 0;
+  for (size_t i = 0; i<data_len; i++) {
+    volume += (double)raw_data[i] * (double)raw_data[i];
+  }
+  volume = volume / (double)data_len;
+  volume = sqrt(volume);
+  // volume must be certain level before we process it
+  if (volume < 2000) {
+    return;
+  }
   void *buffer = NULL;
   ma_uint32 local_frame_count = frameCount;
   ma_result result =
@@ -45,6 +59,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
             frameCount, local_frame_count);
     return;
   }
+
 
   ma_copy_pcm_frames(buffer, pInput, local_frame_count, pDevice->capture.format,
                      pDevice->capture.channels);
