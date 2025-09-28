@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config.zig");
+const capture = @import("capture_data.zig");
 const chebi = @import("chebi");
 const client = chebi.client;
 
@@ -14,7 +15,6 @@ const Error = error{
     capture_start_failed,
 };
 
-const frameSize: comptime_int = (472 * 4);
 const Info = struct {
     running: bool = true,
     cap: *audio.capture_t,
@@ -38,6 +38,27 @@ export fn interrupt_stop(_: i32) void {
     g_info.running = false;
 }
 
+fn cap_data_encode(alloc: std.mem.Allocator, cap: *audio.capture_data_t) !capture.CaptureData {
+    var result: capture.CaptureData = .init(alloc);
+    result.sizeInFrames = @intCast(cap.sizeInFrames);
+    result.format = @intCast(cap.format);
+    result.channels = @intCast(cap.channels);
+    result.buffer = try alloc.alloc(u8, cap.buffer_len);
+    @memcpy(result.buffer, @as([*]u8, @ptrCast(cap.buffer.?))[0..cap.buffer_len]);
+    return result;
+}
+fn cap_data_decode(alloc: std.mem.Allocator, cap: capture.CaptureData) !*audio.capture_data_t {
+    var result: *audio.capture_data_t = audio.capture_data_create();
+    result.sizeInFrames = @intCast(cap.sizeInFrames);
+    result.format = @intCast(cap.format);
+    result.channels = @intCast(cap.channels);
+    result.buffer_len = cap.buffer.len;
+    const tmp_buffer: []u8 = try alloc.alloc(u8, cap.buffer.len);
+    @memcpy(tmp_buffer, cap.buffer);
+    result.buffer = @ptrCast(tmp_buffer.ptr);
+    return result;
+}
+
 fn handle_capture(info: *Info) void {
     while (info.running) {
         var cd_opt: ?*audio.capture_data_t = null;
@@ -52,23 +73,33 @@ fn handle_capture(info: *Info) void {
             _ = std.c.nanosleep(&wait_info, null);
         }
         if (cd_opt) |*cd| {
-            if (cd.*.buffer) |buf| {
+            if (cd.*.buffer) |_| {
                 // TODO convert to json to pass along all info inside capture_data_t
-                const converted_buffer: [*]const u8 = @ptrCast(@alignCast(buf));
-                const payload: []const u8 = converted_buffer[0..cd.*.buffer_len];
-                if (chebi.message.Message.init_with_body(
-                    std.heap.smp_allocator,
-                    info.conf.topic,
-                    payload,
-                    .bin,
-                )) |msg| {
-                    var local_msg: chebi.message.Message = msg;
-                    info.c.write_msg(&local_msg) catch |err| {
-                        std.debug.print("write capture msg failed: {any}\n", .{err});
-                    };
-                    local_msg.deinit();
-                } else |err| {
-                    std.debug.print("init_with_body failed: {any}\n", .{err});
+                var cap_data_opt: ?capture.CaptureData = cap_data_encode(std.heap.smp_allocator, cd.*) catch null;
+                if (cap_data_opt) |*cap_data| {
+                    defer cap_data.*.deinit();
+                    const marshal_data_opt: ?[]const u8 = cap_data.marshal() catch null;
+                    if (marshal_data_opt) |marshal_data| {
+                        defer cap_data.alloc.free(marshal_data);
+                        if (chebi.message.Message.init_with_body(
+                            std.heap.smp_allocator,
+                            info.conf.topic,
+                            marshal_data,
+                            .bin,
+                        )) |msg| {
+                            var local_msg: chebi.message.Message = msg;
+                            info.c.write_msg(&local_msg) catch |err| {
+                                std.debug.print("write capture msg failed: {any}\n", .{err});
+                            };
+                            local_msg.deinit();
+                        } else |err| {
+                            std.debug.print("init_with_body failed: {any}\n", .{err});
+                        }
+                    } else {
+                        std.debug.print("failed to encode capture_data.\n", .{});
+                    }
+                } else {
+                    std.debug.print("failed to encode capture_data.\n", .{});
                 }
             }
             audio.capture_data_destroy(@ptrCast(cd));
@@ -96,8 +127,8 @@ pub fn main() !void {
     g_info.c = &c;
     try c.connect();
 
-    const capture_opt = audio.capture_create(@intCast(frameSize));
-    const playback_opt = audio.playback_create(@intCast(frameSize));
+    const capture_opt = audio.capture_create(5);
+    const playback_opt = audio.playback_create(5);
     if (capture_opt == null or playback_opt == null) {
         return Error.audio_creation_failed;
     }
@@ -126,18 +157,14 @@ pub fn main() !void {
         defer msg.deinit();
         if (msg.payload) |payload| {
             // TODO convert to unmarsheling json to get all g_info inside capture_data_t
-            var data = audio.capture_data_create();
-            const cd_buffer: []u8 = try std.heap.c_allocator.dupe(u8, payload);
-            data.*.buffer = @ptrCast(cd_buffer.ptr);
-            data.*.buffer_len = payload.len;
-            data.*.channels = 1;
-            data.*.format = audio.ma_format_f32;
-            data.*.sizeInFrames = 1102;
-            const queue_result: audio.ma_result = audio.playback_queue(g_info.play, data);
+            var data: capture.CaptureData = .init(std.heap.smp_allocator);
+            try data.unmarshal(payload);
+            var cd = try cap_data_decode(std.heap.smp_allocator, data);
+            const queue_result: audio.ma_result = audio.playback_queue(g_info.play, cd);
             if (queue_result != audio.MA_SUCCESS) {
                 std.debug.print("playback_queue failed: code({})\n", .{queue_result});
             }
-            audio.capture_data_destroy(&data);
+            audio.capture_data_destroy(@ptrCast(&cd));
         }
     }
 }
