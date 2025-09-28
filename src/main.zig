@@ -85,7 +85,7 @@ fn handle_capture(info: *Info) void {
                             std.heap.smp_allocator,
                             info.conf.topic,
                             marshal_data,
-                            .bin,
+                            .text,
                         )) |msg| {
                             var local_msg: chebi.message.Message = msg;
                             info.c.write_msg(&local_msg) catch |err| {
@@ -126,6 +126,7 @@ pub fn main() !void {
     defer c.deinit();
     g_info.c = &c;
     try c.connect();
+    try c.subscribe(conf.topic);
 
     const capture_opt = audio.capture_create(5);
     const playback_opt = audio.playback_create(5);
