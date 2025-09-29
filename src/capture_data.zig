@@ -27,14 +27,15 @@ pub const CaptureData = struct {
     pub fn marshal(self: *const CaptureData) ![]const u8 {
         const byteSize = self.marshal_size();
         const buffer: []u8 = try self.alloc.alloc(u8, byteSize);
+        @memset(buffer, 0);
         var offset: usize = 0;
-        std.mem.writePackedInt(u32, buffer, offset, self.sizeInFrames, .little);
+        std.mem.writePackedInt(u32, buffer, 0, self.sizeInFrames, .little);
         offset += @sizeOf(u32);
-        std.mem.writePackedInt(u8, buffer, offset, self.format, .little);
+        std.mem.writePackedInt(u8, buffer[offset..], 0, self.format, .little);
         offset += @sizeOf(u8);
-        std.mem.writePackedInt(u8, buffer, offset, self.channels, .little);
+        std.mem.writePackedInt(u8, buffer[offset..], 0, self.channels, .little);
         offset += @sizeOf(u8);
-        std.mem.writePackedInt(usize, buffer, offset, self.buffer.len, .little);
+        std.mem.writePackedInt(usize, buffer[offset..], 0, self.buffer.len, .little);
         offset += @sizeOf(usize);
         @memcpy(buffer[offset..], self.buffer);
         return buffer;
@@ -42,13 +43,13 @@ pub const CaptureData = struct {
 
     pub fn unmarshal(self: *CaptureData, buffer: []const u8) !void {
         var offset: usize = 0;
-        self.sizeInFrames = std.mem.readPackedInt(u32, buffer, offset, .little);
+        self.sizeInFrames = std.mem.readPackedInt(u32, buffer, 0, .little);
         offset += @sizeOf(u32);
-        self.format = std.mem.readPackedInt(u8, buffer, offset, .little);
+        self.format = std.mem.readPackedInt(u8, buffer[offset..], 0, .little);
         offset += @sizeOf(u8);
-        self.channels = std.mem.readPackedInt(u8, buffer, offset, .little);
+        self.channels = std.mem.readPackedInt(u8, buffer[offset..], 0, .little);
         offset += @sizeOf(u8);
-        const payload_len = std.mem.readPackedInt(usize, buffer, offset, .little);
+        const payload_len = std.mem.readPackedInt(usize, buffer[offset..], 0, .little);
         offset += @sizeOf(usize);
         self.buffer = try self.alloc.alloc(u8, payload_len);
         @memcpy(self.buffer, buffer[offset..]);

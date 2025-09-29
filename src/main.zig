@@ -57,8 +57,8 @@ fn encode_format_data(comptime T: type, comptime C: type, cap: *audio.capture_da
     while (index < result.buffer.len) {
         std.mem.writePackedInt(
             T,
-            result.buffer,
-            index,
+            result.buffer[index..],
+            0,
             @intCast(cap_data[index]),
             .little,
         );
@@ -98,8 +98,8 @@ fn cap_data_encode(alloc: std.mem.Allocator, cap: *audio.capture_data_t) !captur
 fn decode_formatted_data(comptime T: type, alloc: std.mem.Allocator, len: usize, buffer: []const u8) ![]T {
     const tmp_buffer: []T = try alloc.alloc(T, len);
     var index: usize = 0;
-    while (index < buffer.len) {
-        tmp_buffer[index] = std.mem.readPackedInt(T, buffer, index, .little);
+    while (index < tmp_buffer.len) {
+        tmp_buffer[index] = std.mem.readPackedInt(T, buffer[index..], 0, .little);
         index += @sizeOf(T);
     }
     return tmp_buffer;
@@ -143,6 +143,7 @@ fn handle_capture(info: *Info) void {
     while (info.running) {
         var cd_opt: ?*audio.capture_data_t = null;
         const result: audio.ma_result = audio.capture_next_available(info.cap, &cd_opt);
+        defer audio.capture_data_destroy(@ptrCast(&(cd_opt.?)));
         if (result != audio.MA_SUCCESS and result != audio.MA_NO_DATA_AVAILABLE) {
             std.debug.print("capture_next_available failed: code({})\n", .{result});
             // if we encounter an error, lets wait a time before trying again.
@@ -151,39 +152,36 @@ fn handle_capture(info: *Info) void {
                 .nsec = std.time.ns_per_ms * 250,
             };
             _ = std.c.nanosleep(&wait_info, null);
+            continue;
         }
         if (cd_opt) |*cd| {
             if (cd.*.buffer) |_| {
                 // TODO break up data into smaller packets
                 // maybe, or maybe we should handle this in the audio lib
-                var cap_data_opt: ?capture.CaptureData = cap_data_encode(std.heap.smp_allocator, cd.*) catch null;
-                if (cap_data_opt) |*cap_data| {
-                    defer cap_data.*.deinit();
-                    const marshal_data_opt: ?[]const u8 = cap_data.marshal() catch null;
-                    if (marshal_data_opt) |marshal_data| {
-                        defer cap_data.alloc.free(marshal_data);
-                        if (chebi.message.Message.init_with_body(
-                            std.heap.smp_allocator,
-                            info.conf.topic,
-                            marshal_data,
-                            .text,
-                        )) |msg| {
-                            var local_msg: chebi.message.Message = msg;
-                            info.c.write_msg(&local_msg) catch |err| {
-                                std.debug.print("write capture msg failed: {any}\n", .{err});
-                            };
-                            local_msg.deinit();
-                        } else |err| {
-                            std.debug.print("init_with_body failed: {any}\n", .{err});
-                        }
-                    } else {
-                        std.debug.print("failed to marshal capture_data.\n", .{});
-                    }
-                } else {
-                    std.debug.print("failed to encode capture_data.\n", .{});
+                var cap_data: capture.CaptureData = cap_data_encode(std.heap.smp_allocator, cd.*) catch |err| {
+                    std.debug.print("failed to encode capture_data: {any}\n", .{err});
+                    continue;
+                };
+                defer cap_data.deinit();
+                const marshal_data: []const u8 = cap_data.marshal() catch |err| {
+                    std.debug.print("failed to marshal capture_data: {any}\n", .{err});
+                };
+                defer cap_data.alloc.free(marshal_data);
+                if (chebi.message.Message.init_with_body(
+                    std.heap.smp_allocator,
+                    info.conf.topic,
+                    marshal_data,
+                    .text,
+                )) |msg| {
+                    var local_msg: chebi.message.Message = msg;
+                    info.c.write_msg(&local_msg) catch |err| {
+                        std.debug.print("write capture msg failed: {any}\n", .{err});
+                    };
+                    local_msg.deinit();
+                } else |err| {
+                    std.debug.print("init_with_body failed: {any}\n", .{err});
                 }
             }
-            audio.capture_data_destroy(@ptrCast(cd));
         }
     }
 }
