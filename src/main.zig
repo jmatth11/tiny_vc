@@ -13,6 +13,8 @@ const Error = error{
     audio_creation_failed,
     playback_start_failed,
     capture_start_failed,
+    unknown_format,
+    not_supported,
 };
 
 const Info = struct {
@@ -38,24 +40,101 @@ export fn interrupt_stop(_: i32) void {
     g_info.running = false;
 }
 
+fn get_format_size(format: audio.ma_format) !usize {
+    return switch (format) {
+        audio.ma_format_u8 => @sizeOf(u8),
+        audio.ma_format_s16 => @sizeOf(i16),
+        audio.ma_format_s24 => @sizeOf(i24),
+        audio.ma_format_s32 => @sizeOf(i32),
+        audio.ma_format_f32 => @sizeOf(f32),
+        else => Error.unknown_format,
+    };
+}
+
+fn encode_format_data(comptime T: type, comptime C: type, cap: *audio.capture_data_t, result: *capture.CaptureData) void {
+    const cap_data: [*c]const C = @ptrCast(@alignCast(cap.buffer.?));
+    var index: usize = 0;
+    while (index < result.buffer.len) {
+        std.mem.writePackedInt(
+            T,
+            result.buffer,
+            index,
+            @intCast(cap_data[index]),
+            .little,
+        );
+        index += @sizeOf(T);
+    }
+}
+
 fn cap_data_encode(alloc: std.mem.Allocator, cap: *audio.capture_data_t) !capture.CaptureData {
     var result: capture.CaptureData = .init(alloc);
     result.sizeInFrames = @intCast(cap.sizeInFrames);
     result.format = @intCast(cap.format);
     result.channels = @intCast(cap.channels);
-    result.buffer = try alloc.alloc(u8, cap.buffer_len);
-    @memcpy(result.buffer, @as([*]u8, @ptrCast(cap.buffer.?))[0..cap.buffer_len]);
+    result.buffer = try alloc.alloc(u8, cap.buffer_len * try get_format_size(cap.format));
+    switch (cap.format) {
+        audio.ma_format_u8 => {
+            encode_format_data(u8, u8, cap, &result);
+        },
+        audio.ma_format_s16 => {
+            encode_format_data(i16, i16, cap, &result);
+        },
+        audio.ma_format_s24 => {
+            encode_format_data(i24, i32, cap, &result);
+        },
+        audio.ma_format_s32 => {
+            encode_format_data(i32, i32, cap, &result);
+        },
+        audio.ma_format_f32 => {
+            return Error.not_supported;
+        },
+        else => {
+            return Error.unknown_format;
+        },
+    }
     return result;
 }
+
+fn decode_formatted_data(comptime T: type, alloc: std.mem.Allocator, len: usize, buffer: []const u8) ![]T {
+    const tmp_buffer: []T = try alloc.alloc(T, len);
+    var index: usize = 0;
+    while (index < buffer.len) {
+        tmp_buffer[index] = std.mem.readPackedInt(T, buffer, index, .little);
+        index += @sizeOf(T);
+    }
+    return tmp_buffer;
+}
+
 fn cap_data_decode(alloc: std.mem.Allocator, cap: capture.CaptureData) !*audio.capture_data_t {
     var result: *audio.capture_data_t = audio.capture_data_create();
     result.sizeInFrames = @intCast(cap.sizeInFrames);
     result.format = @intCast(cap.format);
     result.channels = @intCast(cap.channels);
-    result.buffer_len = cap.buffer.len;
-    const tmp_buffer: []u8 = try alloc.alloc(u8, cap.buffer.len);
-    @memcpy(tmp_buffer, cap.buffer);
-    result.buffer = @ptrCast(tmp_buffer.ptr);
+    result.buffer_len = cap.buffer.len / try get_format_size(result.format);
+    switch (result.format) {
+        audio.ma_format_u8 => {
+            const tmp = try decode_formatted_data(u8, alloc, result.buffer_len, cap.buffer);
+            result.buffer = @ptrCast(tmp.ptr);
+        },
+        audio.ma_format_s16 => {
+            const tmp = try decode_formatted_data(i16, alloc, result.buffer_len, cap.buffer);
+            result.buffer = @ptrCast(tmp.ptr);
+        },
+        audio.ma_format_s24 => {
+            const tmp = try decode_formatted_data(i24, alloc, result.buffer_len, cap.buffer);
+            result.buffer = @ptrCast(tmp.ptr);
+        },
+        audio.ma_format_s32 => {
+            const tmp = try decode_formatted_data(i32, alloc, result.buffer_len, cap.buffer);
+            result.buffer = @ptrCast(tmp.ptr);
+        },
+        audio.ma_format_f32 => {
+            return Error.not_supported;
+        },
+        else => {
+            return Error.unknown_format;
+        },
+    }
     return result;
 }
 
@@ -74,7 +153,8 @@ fn handle_capture(info: *Info) void {
         }
         if (cd_opt) |*cd| {
             if (cd.*.buffer) |_| {
-                // TODO convert to json to pass along all info inside capture_data_t
+                // TODO break up data into smaller packets
+                // maybe, or maybe we should handle this in the audio lib
                 var cap_data_opt: ?capture.CaptureData = cap_data_encode(std.heap.smp_allocator, cd.*) catch null;
                 if (cap_data_opt) |*cap_data| {
                     defer cap_data.*.deinit();
@@ -107,6 +187,40 @@ fn handle_capture(info: *Info) void {
     }
 }
 
+fn create_capture() !void {
+    const capture_opt = audio.capture_create(5);
+    if (capture_opt == null) {
+        return Error.audio_creation_failed;
+    }
+    if (capture_opt) |cap| {
+        g_info.cap = cap;
+    }
+    _ = try std.Thread.spawn(.{
+        .allocator = std.heap.smp_allocator,
+    }, handle_capture, .{&g_info});
+    const result: audio.ma_result = audio.capture_start(g_info.cap);
+    if (result != audio.MA_SUCCESS) {
+        std.debug.print("capture failed to start: code({})\n", .{result});
+        return Error.capture_start_failed;
+    }
+}
+
+fn create_playback() !void {
+    const playback_opt = audio.playback_create(200);
+    if (playback_opt == null) {
+        return Error.audio_creation_failed;
+    }
+    if (playback_opt) |play| {
+        g_info.play = play;
+    }
+    const result = audio.playback_start(g_info.play);
+    if (result != audio.MA_SUCCESS) {
+        std.debug.print("playback failed to start: code({})\n", .{result});
+        return Error.playback_start_failed;
+    }
+    try g_info.c.subscribe(g_info.conf.topic);
+}
+
 pub fn main() !void {
     var conf = try config.config(std.heap.smp_allocator);
     defer conf.deinit();
@@ -126,38 +240,21 @@ pub fn main() !void {
     defer c.deinit();
     g_info.c = &c;
     try c.connect();
-    try c.subscribe(conf.topic);
 
-    const capture_opt = audio.capture_create(5);
-    const playback_opt = audio.playback_create(5);
-    if (capture_opt == null or playback_opt == null) {
-        return Error.audio_creation_failed;
+    if (conf.capture_only) {
+        try create_capture();
     }
-    if (capture_opt) |cap| {
-        g_info.cap = cap;
-    }
-    if (playback_opt) |play| {
-        g_info.play = play;
-    }
-    _ = try std.Thread.spawn(.{
-        .allocator = std.heap.smp_allocator,
-    }, handle_capture, .{&g_info});
-    var result: audio.ma_result = audio.capture_start(g_info.cap);
-    if (result != audio.MA_SUCCESS) {
-        std.debug.print("capture failed to start: code({})\n", .{result});
-        return Error.capture_start_failed;
-    }
-    result = audio.playback_start(g_info.play);
-    if (result != audio.MA_SUCCESS) {
-        std.debug.print("playback failed to start: code({})\n", .{result});
-        return Error.playback_start_failed;
+    if (conf.playback_only) {
+        try create_playback();
     }
 
     while (g_info.running) {
         var msg = try g_info.c.next_msg();
         defer msg.deinit();
+        if (conf.capture_only) {
+            continue;
+        }
         if (msg.payload) |payload| {
-            // TODO convert to unmarsheling json to get all g_info inside capture_data_t
             var data: capture.CaptureData = .init(std.heap.smp_allocator);
             try data.unmarshal(payload);
             var cd = try cap_data_decode(std.heap.smp_allocator, data);

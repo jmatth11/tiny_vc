@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #define MINIAUDIO_IMPLEMENTATION 1
@@ -6,6 +7,7 @@
 #include "audio_types.h"
 #include "miniaudio.h"
 
+#include <float.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,20 +28,50 @@ struct playback_t {
   ma_pcm_rb ring_buffer;
 };
 
+static size_t get_max_sample(ma_format format) {
+  switch (format) {
+  case ma_format_s32: {
+    return INT_MAX;
+  }
+  case ma_format_s24: {
+    return 8388607;
+  }
+  case ma_format_s16: {
+    return 32767;
+  }
+  case ma_format_u8: {
+    return 255;
+  }
+  default: {
+    return 0;
+  }
+  }
+}
+
+const ma_format STD_FORMAT = ma_format_s16;
+const double VOICE_THRESHOLD = -1.0;
+
 static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                           ma_uint32 frameCount) {
   (void)pOutput;
   struct capture_t *s = (struct capture_t *)pDevice->pUserData;
-  uint16_t *raw_data = (uint16_t*)pInput;
-  const size_t data_len = frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+  uint16_t *raw_data = (uint16_t *)pInput;
+  const size_t data_len =
+      frameCount * ma_get_bytes_per_frame(pDevice->capture.format,
+                                          pDevice->capture.channels);
   double volume = 0;
-  for (size_t i = 0; i<data_len; i++) {
+  for (size_t i = 0; i < data_len; i++) {
     volume += (double)raw_data[i] * (double)raw_data[i];
   }
   volume = volume / (double)data_len;
   volume = sqrt(volume);
-  // volume must be certain level before we process it
-  if (volume < 2000) {
+  // convert to decimals
+  // https://en.wikipedia.org/wiki/DBFS
+  const double dBFS =
+      20 * log10(volume / (double)get_max_sample(pDevice->capture.format));
+  // decibels must be certain level before we process it
+  //printf("dBFS = %f\n", dBFS);
+  if (dBFS < VOICE_THRESHOLD) {
     return;
   }
   void *buffer = NULL;
@@ -60,7 +92,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     return;
   }
 
-
   ma_copy_pcm_frames(buffer, pInput, local_frame_count, pDevice->capture.format,
                      pDevice->capture.channels);
   result = ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
@@ -77,7 +108,7 @@ struct capture_t *capture_create(ma_uint32 periodSize) {
   s->periodSize = periodSize;
   s->d_config = ma_device_config_init(ma_device_type_capture);
   s->d_config.capture.pDeviceID = NULL;
-  s->d_config.capture.format = ma_format_s16;
+  s->d_config.capture.format = STD_FORMAT;
   s->d_config.capture.channels = 1;
   s->d_config.sampleRate = 44100;
   s->d_config.dataCallback = data_callback;
@@ -90,7 +121,7 @@ struct capture_t *capture_create(ma_uint32 periodSize) {
   }
   s->sizeInFrames = s->device.capture.internalPeriodSizeInFrames;
   printf("sizeInFrames = %d\n", s->sizeInFrames);
-  result = ma_pcm_rb_init(ma_format_s16,                // format
+  result = ma_pcm_rb_init(STD_FORMAT,                   // format
                           1,                            // channels
                           s->sizeInFrames * periodSize, // size in Frames
                           NULL,                         // data to prepopulate
@@ -130,7 +161,7 @@ ma_result capture_start(struct capture_t *s) {
 
 ma_result capture_next_available(struct capture_t *s,
                                  struct capture_data_t **cd) {
-  ma_uint32 sizeInFrames = s->sizeInFrames * s->periodSize;
+  ma_uint32 sizeInFrames = s->sizeInFrames;
   void *out_buffer = NULL;
   ma_result result =
       ma_pcm_rb_acquire_read(&s->ring_buffer, &sizeInFrames, &out_buffer);
@@ -200,7 +231,7 @@ struct playback_t *playback_create(ma_uint32 periodSize) {
   p->periodSize = periodSize;
   p->d_config = ma_device_config_init(ma_device_type_playback);
   p->d_config.playback.pDeviceID = NULL;
-  p->d_config.playback.format = ma_format_s16;
+  p->d_config.playback.format = STD_FORMAT;
   p->d_config.playback.channels = 1;
   p->d_config.sampleRate = 44100;
   p->d_config.dataCallback = playback_data_callback;
@@ -213,7 +244,7 @@ struct playback_t *playback_create(ma_uint32 periodSize) {
   }
   p->sizeInFrames = p->device.playback.internalPeriodSizeInFrames;
   printf("sizeInFrames = %d\n", p->sizeInFrames);
-  result = ma_pcm_rb_init(ma_format_s16,                // format
+  result = ma_pcm_rb_init(STD_FORMAT,                   // format
                           1,                            // channels
                           p->sizeInFrames * periodSize, // size in Frames
                           NULL,                         // data to prepopulate
