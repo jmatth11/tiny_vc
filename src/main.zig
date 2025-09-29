@@ -109,6 +109,7 @@ fn cap_data_decode(alloc: std.mem.Allocator, cap: capture.CaptureData) !*audio.c
     var result: *audio.capture_data_t = audio.capture_data_create();
     result.sizeInFrames = @intCast(cap.sizeInFrames);
     result.format = @intCast(cap.format);
+    std.debug.print("result.format={}, cap.format={}\n", .{result.format, cap.format});
     result.channels = @intCast(cap.channels);
     result.buffer_len = cap.buffer.len / try get_format_size(result.format);
     switch (result.format) {
