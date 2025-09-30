@@ -49,7 +49,7 @@ static size_t get_max_sample(ma_format format) {
 }
 
 const ma_format STD_FORMAT = ma_format_s16;
-const double VOICE_THRESHOLD = -1.0;
+const double VOICE_THRESHOLD = -2.0;
 
 static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                           ma_uint32 frameCount) {
@@ -71,9 +71,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
       20 * log10(volume / (double)get_max_sample(pDevice->capture.format));
   // decibels must be certain level before we process it
   //printf("dBFS = %f\n", dBFS);
-  if (dBFS < VOICE_THRESHOLD) {
-    return;
-  }
+  //if (dBFS < VOICE_THRESHOLD) {
+  //  return;
+  //}
   void *buffer = NULL;
   ma_uint32 local_frame_count = frameCount;
   ma_result result =
