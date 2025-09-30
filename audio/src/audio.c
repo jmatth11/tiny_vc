@@ -191,7 +191,7 @@ ma_result capture_next_available(struct capture_t *s,
   size_t len =
       (sizeInFrames * ma_get_bytes_per_frame(s->device.capture.format,
                                              s->device.capture.channels));
-  struct capture_data_t *local_cd = capture_data_create();
+  struct capture_data_t *local_cd = capture_data_create(len);
   local_cd->sizeInFrames = sizeInFrames;
   local_cd->buffer = malloc(len);
   if (local_cd->buffer == NULL) {

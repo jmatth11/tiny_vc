@@ -9,8 +9,7 @@ const audio = @cImport({
     @cInclude("audio_playback.h");
 });
 
-var g_alloc = std.heap.DebugAllocator(.{}){};
-
+var g_alloc = std.heap.smp_allocator;
 const Error = error{
     audio_creation_failed,
     playback_start_failed,
@@ -168,7 +167,7 @@ fn handle_capture(info: *Info) void {
             if (cd.*.buffer) |_| {
                 // TODO break up data into smaller packets
                 // maybe, or maybe we should handle this in the audio lib
-                var cap_data: capture.CaptureData = cap_data_encode(g_alloc.allocator(), cd.*) catch |err| {
+                var cap_data: capture.CaptureData = cap_data_encode(g_alloc, cd.*) catch |err| {
                     std.debug.print("failed to encode capture_data: {any}\n", .{err});
                     continue;
                 };
@@ -179,7 +178,7 @@ fn handle_capture(info: *Info) void {
                 };
                 defer cap_data.alloc.free(marshal_data);
                 if (chebi.message.Message.init_with_body(
-                    g_alloc.allocator(),
+                    g_alloc,
                     info.conf.topic,
                     marshal_data,
                     .text,
@@ -206,7 +205,7 @@ fn create_capture() !void {
         g_info.cap = cap;
     }
     _ = try std.Thread.spawn(.{
-        .allocator = g_alloc.allocator(),
+        .allocator = g_alloc,
     }, handle_capture, .{&g_info});
     const result: audio.ma_result = audio.capture_start(g_info.cap);
     if (result != audio.MA_SUCCESS) {
@@ -232,7 +231,7 @@ fn create_playback() !void {
 }
 
 pub fn main() !void {
-    var conf = try config.config(g_alloc.allocator());
+    var conf = try config.config(g_alloc);
     defer conf.deinit();
 
     defer g_info.stop();
@@ -246,7 +245,7 @@ pub fn main() !void {
     }, null);
 
     const addr = try std.net.Address.parseIp4(conf.ip, conf.port);
-    var c = try client.Client.init(g_alloc.allocator(), addr);
+    var c = try client.Client.init(g_alloc, addr);
     defer c.deinit();
     g_info.c = &c;
     try c.connect();
@@ -265,10 +264,10 @@ pub fn main() !void {
             continue;
         }
         if (msg.payload) |payload| {
-            var data: capture.CaptureData = .init(g_alloc.allocator());
+            var data: capture.CaptureData = .init(g_alloc);
             defer data.deinit();
             try data.unmarshal(payload);
-            var cd = try cap_data_decode(g_alloc.allocator(), data);
+            var cd = try cap_data_decode(g_alloc, data);
             const queue_result: audio.ma_result = audio.playback_queue(g_info.play, cd);
             if (queue_result != audio.MA_SUCCESS) {
                 std.debug.print("playback_queue failed: code({})\n", .{queue_result});

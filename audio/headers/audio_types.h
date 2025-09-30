@@ -25,7 +25,7 @@ struct capture_data_t {
  *
  * @return Newly created capture data, null on error.
  */
-struct capture_data_t* capture_data_create();
+struct capture_data_t* capture_data_create(size_t len);
 
 /**
  * Destroy the capture data.
