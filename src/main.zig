@@ -190,7 +190,7 @@ fn handle_capture(info: *Info) void {
 }
 
 fn create_capture() !void {
-    const capture_opt = audio.capture_create(5);
+    const capture_opt = audio.capture_create(200);
     if (capture_opt == null) {
         return Error.audio_creation_failed;
     }

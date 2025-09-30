@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 #define MINIAUDIO_IMPLEMENTATION 1
 #include "audio_capture.h"
 #include "audio_playback.h"
@@ -48,17 +49,24 @@ static size_t get_max_sample(ma_format format) {
   }
 }
 
+#define FORMAT_TYPE int16_t
 const ma_format STD_FORMAT = ma_format_s16;
-const double VOICE_THRESHOLD = -2.0;
+static double CAP_THRESHOLD = -13.0;
+static double PLAY_THRESHOLD = -7.0;
+static double cap_sample_counter = 0;
+static double play_sample_counter = 0;
 
 static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                           ma_uint32 frameCount) {
   (void)pOutput;
   struct capture_t *s = (struct capture_t *)pDevice->pUserData;
-  uint16_t *raw_data = (uint16_t *)pInput;
+  FORMAT_TYPE *raw_data = (FORMAT_TYPE *)pInput;
   const size_t data_len =
       frameCount * ma_get_bytes_per_frame(pDevice->capture.format,
                                           pDevice->capture.channels);
+  if (data_len == 0) {
+    return;
+  }
   double volume = 0;
   for (size_t i = 0; i < data_len; i++) {
     volume += (double)raw_data[i] * (double)raw_data[i];
@@ -70,10 +78,16 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   const double dBFS =
       20 * log10(volume / (double)get_max_sample(pDevice->capture.format));
   // decibels must be certain level before we process it
-  //printf("dBFS = %f\n", dBFS);
-  //if (dBFS < VOICE_THRESHOLD) {
-  //  return;
-  //}
+  printf("dBFS = %f\n", dBFS);
+  if (cap_sample_counter < 10) {
+    cap_sample_counter++;
+    CAP_THRESHOLD += dBFS;
+    if (cap_sample_counter == 10) {
+      CAP_THRESHOLD = CAP_THRESHOLD / 10.0;
+    }
+  } else if (dBFS < CAP_THRESHOLD) {
+    return;
+  }
   void *buffer = NULL;
   ma_uint32 local_frame_count = frameCount;
   ma_result result =
@@ -89,6 +103,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
             "frameCount(%d) was higher than available rb_frameCount(%d) -- "
             "dropping data.\n",
             frameCount, local_frame_count);
+    (void)ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
     return;
   }
 
@@ -205,25 +220,59 @@ ma_result capture_next_available(struct capture_t *s,
 static void playback_data_callback(ma_device *pDevice, void *pOutput,
                                    const void *pInput, ma_uint32 frameCount) {
   (void)pInput;
+  (void)frameCount;
   struct playback_t *p = (struct playback_t *)pDevice->pUserData;
-  ma_uint32 frames = frameCount;
+  ma_uint32 frames = p->sizeInFrames * p->periodSize;
   void *buffer = NULL;
   ma_result result = ma_pcm_rb_acquire_read(&p->ring_buffer, &frames, &buffer);
-  if (result != MA_SUCCESS) {
+  if (result != MA_SUCCESS || buffer == NULL) {
     fprintf(stderr,
             "failed to acquire read for ring buffer -- error code(%d).\n",
             result);
     return;
   }
-  ma_copy_pcm_frames(pOutput, buffer, frames, pDevice->playback.format,
-                     pDevice->playback.channels);
+  const size_t data_len =
+      frames * ma_get_bytes_per_frame(pDevice->playback.format,
+                                          pDevice->playback.channels);
+  if (data_len == 0) {
+    (void)ma_pcm_rb_commit_read(&p->ring_buffer, frames);
+    return;
+  }
+  FORMAT_TYPE *raw_data = malloc(sizeof(FORMAT_TYPE) * data_len);
+  memcpy(raw_data, buffer, data_len);
   result = ma_pcm_rb_commit_read(&p->ring_buffer, frames);
   if (result != MA_SUCCESS) {
     fprintf(stderr,
             "failed to commit read for ring buffer -- error code(%d).\n",
             result);
+    free(raw_data);
     return;
   }
+  double volume = 0;
+  for (size_t i = 0; i < data_len; i++) {
+    volume += (double)raw_data[i] * (double)raw_data[i];
+  }
+  volume = volume / (double)data_len;
+  volume = sqrt(volume);
+  // convert to decimals
+  // https://en.wikipedia.org/wiki/DBFS
+  const double dBFS =
+      20 * log10(volume / (double)get_max_sample(pDevice->playback.format));
+  // decibels must be certain level before we process it
+  printf("dBFS = %f\n", dBFS);
+  if (play_sample_counter < 10) {
+    play_sample_counter++;
+    PLAY_THRESHOLD += dBFS;
+    if (play_sample_counter == 10) {
+      PLAY_THRESHOLD = PLAY_THRESHOLD / 10.0;
+    }
+  } else if (dBFS == INFINITY || dBFS < PLAY_THRESHOLD) {
+    free(raw_data);
+    return;
+  }
+  ma_copy_pcm_frames(pOutput, raw_data, frames, pDevice->playback.format,
+                     pDevice->playback.channels);
+  free(raw_data);
 }
 
 struct playback_t *playback_create(ma_uint32 periodSize) {

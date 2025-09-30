@@ -14,8 +14,8 @@ void sigint_handler(int signo) {
 }
 
 int main(void) {
-  struct capture_t *cap = capture_create(5);
-  struct playback_t *play = playback_create(5);
+  struct capture_t *cap = capture_create(100);
+  struct playback_t *play = playback_create(100);
   if (cap == NULL || play == NULL) {
     fprintf(stderr, "creation failed.\n");
     return -1;
