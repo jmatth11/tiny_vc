@@ -85,6 +85,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     if (cap_sample_counter == 10) {
       CAP_THRESHOLD = CAP_THRESHOLD / 10.0;
     }
+    return;
   } else if (dBFS < CAP_THRESHOLD) {
     return;
   }
@@ -192,9 +193,10 @@ ma_result capture_next_available(struct capture_t *s,
                                              s->device.capture.channels));
   struct capture_data_t *local_cd = capture_data_create();
   local_cd->sizeInFrames = sizeInFrames;
-  local_cd->buffer = malloc(sizeof(out_buffer[0]) * len);
+  local_cd->buffer = malloc(len);
   if (local_cd->buffer == NULL) {
     capture_data_destroy(&local_cd);
+    (void)ma_pcm_rb_commit_read(&s->ring_buffer, local_cd->sizeInFrames);
     return MA_NO_ADDRESS;
   }
   ma_copy_pcm_frames(local_cd->buffer, out_buffer, sizeInFrames,
@@ -238,7 +240,11 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
     (void)ma_pcm_rb_commit_read(&p->ring_buffer, frames);
     return;
   }
-  FORMAT_TYPE *raw_data = malloc(sizeof(FORMAT_TYPE) * data_len);
+  void *raw_data = malloc(data_len);
+  if (raw_data == NULL) {
+    fprintf(stderr, "ran out of memory.\n");
+    return;
+  }
   memcpy(raw_data, buffer, data_len);
   result = ma_pcm_rb_commit_read(&p->ring_buffer, frames);
   if (result != MA_SUCCESS) {
@@ -248,9 +254,10 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
     free(raw_data);
     return;
   }
+  FORMAT_TYPE *cast_data = (FORMAT_TYPE*)raw_data;
   double volume = 0;
   for (size_t i = 0; i < data_len; i++) {
-    volume += (double)raw_data[i] * (double)raw_data[i];
+    volume += (double)cast_data[i] * (double)cast_data[i];
   }
   volume = volume / (double)data_len;
   volume = sqrt(volume);
@@ -266,6 +273,8 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
     if (play_sample_counter == 10) {
       PLAY_THRESHOLD = PLAY_THRESHOLD / 10.0;
     }
+    free(raw_data);
+    return;
   } else if (dBFS == INFINITY || dBFS < PLAY_THRESHOLD) {
     free(raw_data);
     return;

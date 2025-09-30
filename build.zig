@@ -8,6 +8,7 @@ fn build_audio_lib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
     const flags: []const []const u8 = &.{
         "-Wall",
         "-std=c11",
+        "-ggdb",
     };
     const audio_mod = b.createModule(.{
         .target = target,
