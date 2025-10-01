@@ -7,8 +7,10 @@
 #include "audio_playback.h"
 #include "audio_types.h"
 #include "miniaudio.h"
+#include "audio_utils.h"
 
 #include <float.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,56 +31,38 @@ struct playback_t {
   ma_pcm_rb ring_buffer;
 };
 
-static size_t get_max_sample(ma_format format) {
-  switch (format) {
-  case ma_format_s32: {
-    return INT_MAX;
-  }
-  case ma_format_s24: {
-    return 8388607;
-  }
-  case ma_format_s16: {
-    return 32767;
-  }
-  case ma_format_u8: {
-    return 255;
-  }
-  default: {
-    return 0;
-  }
-  }
-}
-
 #define FORMAT_TYPE int16_t
 const ma_format STD_FORMAT = ma_format_s16;
 static double CAP_THRESHOLD = -13.0;
-static double PLAY_THRESHOLD = -7.0;
 static double cap_sample_counter = 0;
-static double play_sample_counter = 0;
+
+/***********************************************************************************
+ *
+ *
+ *
+ * Capture functionality.
+ *
+ *
+ *
+ * *********************************************************************************
+ */
 
 static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                           ma_uint32 frameCount) {
   (void)pOutput;
   struct capture_t *s = (struct capture_t *)pDevice->pUserData;
-  FORMAT_TYPE *raw_data = (FORMAT_TYPE *)pInput;
   const size_t data_len =
       frameCount * ma_get_bytes_per_frame(pDevice->capture.format,
                                           pDevice->capture.channels);
   if (data_len == 0) {
     return;
   }
-  double volume = 0;
-  for (size_t i = 0; i < data_len; i++) {
-    volume += (double)raw_data[i] * (double)raw_data[i];
-  }
-  volume = volume / (double)data_len;
-  volume = sqrt(volume);
   // convert to decimals
   // https://en.wikipedia.org/wiki/DBFS
-  const double dBFS =
-      20 * log10(volume / (double)get_max_sample(pDevice->capture.format));
+  const double dBFS = audio_get_decibels(
+      pInput, frameCount, pDevice->capture.format, pDevice->capture.channels);
   // decibels must be certain level before we process it
-  printf("dBFS = %f\n", dBFS);
+  printf("dBFS = %f, threshold = %f\n", dBFS, CAP_THRESHOLD);
   if (cap_sample_counter < 10) {
     cap_sample_counter++;
     CAP_THRESHOLD += dBFS;
@@ -193,7 +177,6 @@ ma_result capture_next_available(struct capture_t *s,
                                              s->device.capture.channels));
   struct capture_data_t *local_cd = capture_data_create(len);
   local_cd->sizeInFrames = sizeInFrames;
-  local_cd->buffer = malloc(len);
   if (local_cd->buffer == NULL) {
     capture_data_destroy(&local_cd);
     (void)ma_pcm_rb_commit_read(&s->ring_buffer, local_cd->sizeInFrames);
@@ -235,7 +218,7 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
   }
   const size_t data_len =
       frames * ma_get_bytes_per_frame(pDevice->playback.format,
-                                          pDevice->playback.channels);
+                                      pDevice->playback.channels);
   if (data_len == 0) {
     (void)ma_pcm_rb_commit_read(&p->ring_buffer, frames);
     return;
@@ -254,31 +237,11 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
     free(raw_data);
     return;
   }
-  FORMAT_TYPE *cast_data = (FORMAT_TYPE*)raw_data;
-  double volume = 0;
-  for (size_t i = 0; i < data_len; i++) {
-    volume += (double)cast_data[i] * (double)cast_data[i];
-  }
-  volume = volume / (double)data_len;
-  volume = sqrt(volume);
   // convert to decimals
   // https://en.wikipedia.org/wiki/DBFS
-  const double dBFS =
-      20 * log10(volume / (double)get_max_sample(pDevice->playback.format));
+  const double dBFS = audio_get_decibels(raw_data, frames, pDevice->playback.format, pDevice->playback.channels);
   // decibels must be certain level before we process it
   printf("dBFS = %f\n", dBFS);
-  if (play_sample_counter < 10) {
-    play_sample_counter++;
-    PLAY_THRESHOLD += dBFS;
-    if (play_sample_counter == 10) {
-      PLAY_THRESHOLD = PLAY_THRESHOLD / 10.0;
-    }
-    free(raw_data);
-    return;
-  } else if (dBFS == INFINITY || dBFS < PLAY_THRESHOLD) {
-    free(raw_data);
-    return;
-  }
   ma_copy_pcm_frames(pOutput, raw_data, frames, pDevice->playback.format,
                      pDevice->playback.channels);
   free(raw_data);
@@ -356,7 +319,7 @@ ma_result playback_start(struct playback_t *s) {
  * @param cd The structure to use for playback data.
  * @return ma_result enum.
  */
-ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd) {
+ma_result playback_queue(struct playback_t *s, const struct capture_data_t *cd) {
   ma_uint32 frames = cd->sizeInFrames;
   void *buffer = NULL;
   ma_result result = ma_pcm_rb_acquire_write(&s->ring_buffer, &frames, &buffer);

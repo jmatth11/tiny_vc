@@ -2,6 +2,7 @@ const std = @import("std");
 
 fn build_audio_lib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
     const files: []const []const u8 = &.{
+        "audio/src/audio_utils.c",
         "audio/src/audio.c",
         "audio/src/audio_types.c",
     };
@@ -22,16 +23,19 @@ fn build_audio_lib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
         .language = .c,
         .flags = flags,
     });
-    audio_mod.linkSystemLibrary("m", .{.needed = true});
-    audio_mod.linkSystemLibrary("pthread", .{.needed = true});
-    audio_mod.linkSystemLibrary("atomic", .{.needed = true});
+    audio_mod.linkSystemLibrary("m", .{ .needed = true });
+    audio_mod.linkSystemLibrary("pthread", .{ .needed = true });
+    audio_mod.linkSystemLibrary("atomic", .{ .needed = true });
     return audio_mod;
 }
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const dep_opts = .{.target = target, .optimize = optimize,};
+    const dep_opts = .{
+        .target = target,
+        .optimize = optimize,
+    };
     const chebi = b.dependency("chebi", dep_opts).module("chebi");
     const clap = b.dependency("clap", dep_opts).module("clap");
 
@@ -51,10 +55,12 @@ pub fn build(b: *std.Build) void {
     const audio_mod = build_audio_lib(b, target, optimize);
     const audio_lib = b.addLibrary(.{
         .name = "audio",
-        .root_module = audio_mod
+        .root_module = audio_mod,
     });
+    audio_lib.linkLibC();
     exe.addIncludePath(b.path("./audio/headers/"));
     exe.linkLibrary(audio_lib);
+    exe.linkLibC();
 
     b.installArtifact(exe);
 

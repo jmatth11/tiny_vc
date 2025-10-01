@@ -4,11 +4,18 @@
 
 struct capture_data_t* capture_data_create(size_t len) {
   struct capture_data_t* local = malloc(sizeof(struct capture_data_t));
+  if (local == NULL) {
+    return NULL;
+  }
   local->sizeInFrames = 0;
   local->channels = 0;
   local->format = ma_format_unknown;
   local->buffer_len = 0;
   local->buffer = malloc(sizeof(char)*len);
+  if (local->buffer == NULL) {
+    free(local);
+    return NULL;
+  }
   return local;
 }
 

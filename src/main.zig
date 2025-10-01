@@ -52,21 +52,6 @@ fn get_format_size(format: audio.ma_format) !usize {
     };
 }
 
-fn encode_format_data(comptime T: type, comptime C: type, cap: *audio.capture_data_t, result: *capture.CaptureData) void {
-    const cap_data: [*c]const C = @ptrCast(@alignCast(cap.buffer.?));
-    var index: usize = 0;
-    while (index < result.buffer.len) {
-        std.mem.writePackedInt(
-            T,
-            result.buffer[index..],
-            0,
-            @intCast(cap_data[index]),
-            .little,
-        );
-        index += @sizeOf(T);
-    }
-}
-
 fn cap_data_encode(alloc: std.mem.Allocator, cap: *audio.capture_data_t) !capture.CaptureData {
     var result: capture.CaptureData = .init(alloc);
     result.sizeInFrames = @intCast(cap.sizeInFrames);
@@ -74,78 +59,15 @@ fn cap_data_encode(alloc: std.mem.Allocator, cap: *audio.capture_data_t) !captur
     result.channels = @intCast(cap.channels);
     result.buffer = try alloc.alloc(u8, cap.buffer_len);
     @memcpy(result.buffer, @as([*]const u8, @ptrCast(cap.buffer.?)));
-    //errdefer alloc.free(result.buffer);
-    //switch (cap.format) {
-    //    audio.ma_format_u8 => {
-    //        encode_format_data(u8, u8, cap, &result);
-    //    },
-    //    audio.ma_format_s16 => {
-    //        encode_format_data(i16, i16, cap, &result);
-    //    },
-    //    audio.ma_format_s24 => {
-    //        encode_format_data(i24, i32, cap, &result);
-    //    },
-    //    audio.ma_format_s32 => {
-    //        encode_format_data(i32, i32, cap, &result);
-    //    },
-    //    audio.ma_format_f32 => {
-    //        return Error.not_supported;
-    //    },
-    //    else => {
-    //        return Error.unknown_format;
-    //    },
-    //}
     return result;
 }
 
-fn decode_formatted_data(comptime T: type, alloc: std.mem.Allocator, len: usize, buffer: []const u8) ![]T {
-    const tmp_buffer: []T = try alloc.alloc(T, len);
-    var index: usize = 0;
-    while (index < tmp_buffer.len) {
-        tmp_buffer[index] = std.mem.readPackedInt(T, buffer[index..], 0, .little);
-        index += @sizeOf(T);
-    }
-    return tmp_buffer;
-}
-
-fn cap_data_decode(_: std.mem.Allocator, cap: capture.CaptureData) !*audio.capture_data_t {
-    var result: *audio.capture_data_t = undefined;
-    const result_opt: ?*audio.capture_data_t = audio.capture_data_create(cap.buffer.len);
-    if (result_opt) |r| {
-        result = r;
-    } else {
-        return Error.audio_creation_failed;
-    }
-    result.sizeInFrames = @intCast(cap.sizeInFrames);
-    result.format = @intCast(cap.format);
-    result.channels = @intCast(cap.channels);
-    result.buffer_len = cap.buffer.len;
-    @memcpy(@as([*]u8, @ptrCast(result.buffer.?)), cap.buffer);
-    //switch (result.format) {
-    //    audio.ma_format_u8 => {
-    //        const tmp = try decode_formatted_data(u8, alloc, result.buffer_len, cap.buffer);
-    //        result.buffer = @ptrCast(tmp.ptr);
-    //    },
-    //    audio.ma_format_s16 => {
-    //        const tmp = try decode_formatted_data(i16, alloc, result.buffer_len, cap.buffer);
-    //        result.buffer = @ptrCast(tmp.ptr);
-    //    },
-    //    audio.ma_format_s24 => {
-    //        const tmp = try decode_formatted_data(i24, alloc, result.buffer_len, cap.buffer);
-    //        result.buffer = @ptrCast(tmp.ptr);
-    //    },
-    //    audio.ma_format_s32 => {
-    //        const tmp = try decode_formatted_data(i32, alloc, result.buffer_len, cap.buffer);
-    //        result.buffer = @ptrCast(tmp.ptr);
-    //    },
-    //    audio.ma_format_f32 => {
-    //        return Error.not_supported;
-    //    },
-    //    else => {
-    //        return Error.unknown_format;
-    //    },
-    //}
-    return result;
+fn cap_data_decode(cap: capture.CaptureData, out: *audio.capture_data_t) void {
+    out.sizeInFrames = @intCast(cap.sizeInFrames);
+    out.format = @intCast(cap.format);
+    out.channels = @intCast(cap.channels);
+    out.buffer_len = cap.buffer.len;
+    out.buffer = cap.buffer.ptr;
 }
 
 fn handle_capture(info: *Info) void {
@@ -267,12 +189,12 @@ pub fn main() !void {
             var data: capture.CaptureData = .init(g_alloc);
             defer data.deinit();
             try data.unmarshal(payload);
-            var cd = try cap_data_decode(g_alloc, data);
-            const queue_result: audio.ma_result = audio.playback_queue(g_info.play, cd);
+            var cd: audio.capture_data_t = .{};
+            cap_data_decode(data, &cd);
+            const queue_result: audio.ma_result = audio.playback_queue(g_info.play, &cd);
             if (queue_result != audio.MA_SUCCESS) {
                 std.debug.print("playback_queue failed: code({})\n", .{queue_result});
             }
-            audio.capture_data_destroy(@ptrCast(&cd));
         }
     }
 }

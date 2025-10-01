@@ -39,6 +39,6 @@ ma_result playback_start(struct playback_t *s);
  * @param cd The structure to use for playback data.
  * @return ma_result enum.
  */
-ma_result playback_queue(struct playback_t *s, struct capture_data_t *cd);
+ma_result playback_queue(struct playback_t *s, const struct capture_data_t *cd);
 
 #endif
