@@ -67,14 +67,14 @@ static inline double rms_int16(const void *input, const size_t len) {
 static inline double rms_int24(const void *input, const size_t len) {
   double volume = 0;
   const uint8_t *raw_data = (const uint8_t *)input;
-  for (size_t i = 0; i < len; i++) {
+  for (size_t i = 0; i <= (len - 2); i += 3) {
     int32_t value = 0;
     if (is_little_endian()) {
-      value = (((int32_t)raw_data[i])) | (((int32_t)raw_data[i]) << 8) |
-              (((int32_t)raw_data[i]) << 16);
+      value = (((int32_t)raw_data[i])) | (((int32_t)raw_data[i + 1]) << 8) |
+              (((int32_t)raw_data[i + 2]) << 16);
     } else {
-      value = (((int32_t)raw_data[i]) << 16) | (((int32_t)raw_data[i]) << 8) |
-              (((int32_t)raw_data[i]));
+      value = (((int32_t)raw_data[i]) << 16) | (((int32_t)raw_data[i + 1]) << 8) |
+              (((int32_t)raw_data[i + 2]));
     }
     volume += (double)value * (double)value;
   }
