@@ -21,4 +21,7 @@ This is an experimentation into audio processing and voip style programs.
 
 ## Demo
 
+The demo audio is a little choppy at the moment. 
+I'm trying to figure out if it's related to my auto-config dB threshold algo on the capture side or maybe if I need to buffer the data on the playback side.
 
+https://github.com/user-attachments/assets/89ebbc52-6cb9-45a4-a79c-7e4b2a738324
