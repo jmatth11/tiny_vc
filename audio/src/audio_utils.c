@@ -1,24 +1,29 @@
 #include "audio_utils.h"
+
+#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
 
-size_t get_max_sample(ma_format format) {
+double get_max_sample(ma_format format) {
   switch (format) {
+  case ma_format_f32: {
+    return FLT_MAX;
+  }
   case ma_format_s32: {
-    return INT_MAX;
+    return (double)INT_MAX;
   }
   case ma_format_s24: {
-    return 8388607;
+    return (double)8388607;
   }
   case ma_format_s16: {
-    return 32767;
+    return (double)SHRT_MAX;
   }
   case ma_format_u8: {
-    return 255;
+    return (double)UCHAR_MAX;
   }
   default: {
-    return 0;
+    return 0.0;
   }
   }
 }
@@ -73,8 +78,8 @@ static inline double rms_int24(const void *input, const size_t len) {
       value = (((int32_t)raw_data[i])) | (((int32_t)raw_data[i + 1]) << 8) |
               (((int32_t)raw_data[i + 2]) << 16);
     } else {
-      value = (((int32_t)raw_data[i]) << 16) | (((int32_t)raw_data[i + 1]) << 8) |
-              (((int32_t)raw_data[i + 2]));
+      value = (((int32_t)raw_data[i]) << 16) |
+              (((int32_t)raw_data[i + 1]) << 8) | (((int32_t)raw_data[i + 2]));
     }
     volume += (double)value * (double)value;
   }
@@ -96,8 +101,23 @@ static inline double rms_int32(const void *input, const size_t len) {
   volume = sqrt(volume);
   return volume;
 }
+/**
+ * Calculate Root Mean Squared (RMS) value for the given input audio.
+ * Data Type: float32.
+ */
+static inline double rms_float32(const void *input, const size_t len) {
+  double volume = 0;
+  const float *raw_data = (const float *)input;
+  for (size_t i = 0; i < len; i++) {
+    volume += (double)raw_data[i] * (double)raw_data[i];
+  }
+  volume = volume / (double)len;
+  volume = sqrt(volume);
+  return volume;
+}
 
-double calculate_rms(const void *input, const size_t len, const ma_format format) {
+double calculate_rms(const void *input, const size_t len,
+                     const ma_format format) {
   switch (format) {
   case ma_format_u8: {
     return rms_uint8(input, len);
@@ -110,6 +130,9 @@ double calculate_rms(const void *input, const size_t len, const ma_format format
   }
   case ma_format_s32: {
     return rms_int32(input, len);
+  }
+  case ma_format_f32: {
+    return rms_float32(input, len);
   }
   default: {
     return 0.0;
@@ -140,5 +163,5 @@ double audio_get_decibels(const void *input, ma_uint32 frameCount,
   if (max_sample == 0) {
     return 0.0;
   }
-  return 20.0 * log10(volume / (double)get_max_sample(format));
+  return 20.0 * log10(volume / get_max_sample(format));
 }

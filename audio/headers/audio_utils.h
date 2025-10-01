@@ -7,7 +7,7 @@
 /**
  * Get the max sample size for the given format.
  */
-size_t get_max_sample(ma_format format);
+double get_max_sample(ma_format format);
 
 /**
  * Check if the system is little endian or not.
