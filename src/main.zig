@@ -41,17 +41,6 @@ export fn interrupt_stop(_: i32) void {
     g_info.running = false;
 }
 
-fn get_format_size(format: audio.ma_format) !usize {
-    return switch (format) {
-        audio.ma_format_u8 => @sizeOf(u8),
-        audio.ma_format_s16 => @sizeOf(i16),
-        audio.ma_format_s24 => @sizeOf(i24),
-        audio.ma_format_s32 => @sizeOf(i32),
-        audio.ma_format_f32 => @sizeOf(f32),
-        else => Error.unknown_format,
-    };
-}
-
 fn cap_data_encode(alloc: std.mem.Allocator, cap: *audio.capture_data_t) !capture.CaptureData {
     var result: capture.CaptureData = .init(alloc);
     result.sizeInFrames = @intCast(cap.sizeInFrames);
