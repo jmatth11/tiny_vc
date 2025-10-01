@@ -29,10 +29,7 @@ size_t get_max_sample(ma_format format) {
 bool is_little_endian() {
   uint16_t tmp = 1;
   const uint8_t *raw = (const uint8_t *)&tmp;
-  if (raw[0] == 1) {
-    return true;
-  }
-  return false;
+  return raw[0] == 1;
 }
 
 /**
