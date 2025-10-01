@@ -1,5 +1,4 @@
 #include <limits.h>
-#include <math.h>
 #include <stdint.h>
 #include <string.h>
 #define MINIAUDIO_IMPLEMENTATION 1

@@ -70,11 +70,11 @@ static inline double rms_int24(const void *input, const size_t len) {
   for (size_t i = 0; i < len; i++) {
     int32_t value = 0;
     if (is_little_endian()) {
-      value = (((int32_t)raw_data[i]) << 16) | (((int32_t)raw_data[i]) << 8) |
-              (((int32_t)raw_data[i]));
-    } else {
       value = (((int32_t)raw_data[i])) | (((int32_t)raw_data[i]) << 8) |
               (((int32_t)raw_data[i]) << 16);
+    } else {
+      value = (((int32_t)raw_data[i]) << 16) | (((int32_t)raw_data[i]) << 8) |
+              (((int32_t)raw_data[i]));
     }
     volume += (double)value * (double)value;
   }
