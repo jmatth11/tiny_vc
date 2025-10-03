@@ -4,6 +4,9 @@ const capture = @import("capture_data.zig");
 const chebi = @import("chebi");
 const client = chebi.client;
 
+const rb = @import("rb");
+const Ring = rb.RingBuffer(10, capture.CaptureData);
+
 const audio = @cImport({
     @cInclude("audio_capture.h");
     @cInclude("audio_playback.h");
@@ -19,6 +22,7 @@ const Error = error{
 };
 
 const Info = struct {
+    ring: *Ring,
     running: bool = true,
     cap: *audio.capture_t,
     play: *audio.playback_t,
@@ -31,6 +35,7 @@ const Info = struct {
 };
 
 var g_info: Info = .{
+    .ring = undefined,
     .c = undefined,
     .play = undefined,
     .cap = undefined,
@@ -59,35 +64,18 @@ fn cap_data_decode(cap: capture.CaptureData, out: *audio.capture_data_t) void {
     out.buffer = cap.buffer.ptr;
 }
 
-fn handle_capture(info: *Info) void {
+fn handle_broadcast(info: *Info) void {
     while (info.running) {
-        var cd_opt: ?*audio.capture_data_t = null;
-        const result: audio.ma_result = audio.capture_next_available(info.cap, &cd_opt);
-        if (result != audio.MA_SUCCESS and result != audio.MA_NO_DATA_AVAILABLE) {
-            std.debug.print("capture_next_available failed: code({})\n", .{result});
-            // if we encounter an error, lets wait a time before trying again.
-            const wait_info: std.c.timespec = .{
-                .sec = 0,
-                .nsec = std.time.ns_per_ms * 250,
-            };
-            _ = std.c.nanosleep(&wait_info, null);
-            continue;
-        }
-        if (cd_opt) |*cd| {
-            defer audio.capture_data_destroy(@ptrCast(cd));
-            if (cd.*.buffer) |_| {
-                // TODO break up data into smaller packets
-                // maybe, or maybe we should handle this in the audio lib
-                var cap_data: capture.CaptureData = cap_data_encode(g_alloc, cd.*) catch |err| {
-                    std.debug.print("failed to encode capture_data: {any}\n", .{err});
-                    continue;
-                };
-                defer cap_data.deinit();
-                const marshal_data: []const u8 = cap_data.marshal() catch |err| {
+        const items_opt = info.ring.read_when_full(g_alloc, std.time.ns_per_s * 1) catch unreachable;
+        if (items_opt) |items| {
+            defer g_alloc.free(items);
+            for (items) |*cap| {
+                defer cap.*.deinit();
+                const marshal_data: []const u8 = cap.*.marshal() catch |err| {
                     std.debug.print("failed to marshal capture_data: {any}\n", .{err});
                     continue;
                 };
-                defer cap_data.alloc.free(marshal_data);
+                defer cap.*.alloc.free(marshal_data);
                 if (chebi.message.Message.init_with_body(
                     g_alloc,
                     info.conf.topic,
@@ -107,6 +95,37 @@ fn handle_capture(info: *Info) void {
     }
 }
 
+fn handle_capture(info: *Info) void {
+    while (info.running) {
+        var cd_opt: ?*audio.capture_data_t = null;
+        const result: audio.ma_result = audio.capture_next_available(info.cap, &cd_opt);
+        if (result != audio.MA_SUCCESS and result != audio.MA_NO_DATA_AVAILABLE) {
+            std.debug.print("capture_next_available failed: code({})\n", .{result});
+            // if we encounter an error, lets wait a time before trying again.
+            const wait_info: std.c.timespec = .{
+                .sec = 0,
+                .nsec = std.time.ns_per_ms * 250,
+            };
+            _ = std.c.nanosleep(&wait_info, null);
+            continue;
+        }
+        if (cd_opt) |*cd| {
+            defer audio.capture_data_destroy(@ptrCast(cd));
+            if (cd.*.buffer) |_| {
+                // TODO break up data into smaller packets
+                // maybe, or maybe we should handle this in the audio lib
+                const cap_data: capture.CaptureData = cap_data_encode(g_alloc, cd.*) catch |err| {
+                    std.debug.print("failed to encode capture_data: {any}\n", .{err});
+                    continue;
+                };
+                info.ring.write(cap_data) catch |err| {
+                    std.debug.print("ring buffer write error: {any}\n", .{err});
+                };
+            }
+        }
+    }
+}
+
 fn create_capture() !void {
     const capture_opt = audio.capture_create(200);
     if (capture_opt == null) {
@@ -115,9 +134,14 @@ fn create_capture() !void {
     if (capture_opt) |cap| {
         g_info.cap = cap;
     }
+    // capture thread
     _ = try std.Thread.spawn(.{
         .allocator = g_alloc,
     }, handle_capture, .{&g_info});
+    // broadcast thread
+    _ = try std.Thread.spawn(.{
+        .allocator = g_alloc,
+    }, handle_broadcast, .{&g_info});
     const result: audio.ma_result = audio.capture_start(g_info.cap);
     if (result != audio.MA_SUCCESS) {
         std.debug.print("capture failed to start: code({})\n", .{result});
@@ -147,6 +171,9 @@ pub fn main() !void {
 
     defer g_info.stop();
     g_info.conf = conf;
+
+    var local_ring: Ring = .init();
+    g_info.ring = &local_ring;
 
     const empty_sig: [16]c_ulong = @splat(0);
     _ = std.c.sigaction(std.c.SIG.INT, &.{

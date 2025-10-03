@@ -38,6 +38,7 @@ pub fn build(b: *std.Build) void {
     };
     const chebi = b.dependency("chebi", dep_opts).module("chebi");
     const clap = b.dependency("clap", dep_opts).module("clap");
+    const rb_lib = b.dependency("rb_zig", dep_opts).module("rb_zig");
 
     const exe = b.addExecutable(.{
         .name = "tiny_vc",
@@ -48,6 +49,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "chebi", .module = chebi },
                 .{ .name = "clap", .module = clap },
+                .{ .name = "rb", .module = rb_lib },
             },
         }),
     });

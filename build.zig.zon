@@ -40,6 +40,10 @@
             .url = "git+https://github.com/Hejsil/zig-clap#b7e3348ed60f99ba32c75aa707ff7c87adc31b36",
             .hash = "clap-0.11.0-oBajB-TnAQC7yPLnZRT5WzHZ_4Ly4dX2OILskli74b9H",
         },
+        .rb_zig = .{
+            .url = "git+https://codeberg.org/jmatth11/rb.zig?ref=main#dc1474b0e533e8209dfe0d6fef6f67145893c70c",
+            .hash = "rb_zig-0.0.0-O5MsPaQtAACQJiO0nkPYXemDVuipfBcg4m8kXVlG-uXF",
+        },
     },
     .paths = .{
         "build.zig",
