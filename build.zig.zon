@@ -41,8 +41,8 @@
             .hash = "clap-0.11.0-oBajB-TnAQC7yPLnZRT5WzHZ_4Ly4dX2OILskli74b9H",
         },
         .rb_zig = .{
-            .url = "git+https://codeberg.org/jmatth11/rb.zig?ref=main#dc1474b0e533e8209dfe0d6fef6f67145893c70c",
-            .hash = "rb_zig-0.0.0-O5MsPaQtAACQJiO0nkPYXemDVuipfBcg4m8kXVlG-uXF",
+            .url = "git+https://codeberg.org/jmatth11/rb.zig?ref=main#e4dfcfe9ddb2012e807c32e2db32bce2de492bc7",
+            .hash = "rb_zig-0.0.0-O5MsPTwvAABX-04p8QS_AYcF16M-K1Kj8xsA27PDIg9A",
         },
     },
     .paths = .{
