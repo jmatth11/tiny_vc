@@ -75,11 +75,24 @@ fn handle_ring_buffer_data(info: *Info) void {
             defer g_alloc.free(items);
             for (items) |*cap| {
                 defer cap.*.deinit();
-                var cd: audio.capture_data_t = .{};
-                cap_data_decode(cap.*, &cd);
-                const queue_result: audio.ma_result = audio.playback_queue(g_info.play, &cd);
-                if (queue_result != audio.MA_SUCCESS) {
-                    std.debug.print("playback_queue failed: code({})\n", .{queue_result});
+                const marshal_data: []const u8 = cap.*.marshal() catch |err| {
+                    std.debug.print("failed to marshal cap_datature_data: {any}\n", .{err});
+                    continue;
+                };
+                defer cap.*.alloc.free(marshal_data);
+                if (chebi.message.Message.init_with_body(
+                    g_alloc,
+                    info.conf.topic,
+                    marshal_data,
+                    .text,
+                )) |msg| {
+                    var local_msg: chebi.message.Message = msg;
+                    info.c.write_msg(&local_msg) catch |err| {
+                        std.debug.print("write cap_datature msg failed: {any}\n", .{err});
+                    };
+                    local_msg.deinit();
+                } else |err| {
+                    std.debug.print("init_with_body failed: {any}\n", .{err});
                 }
             }
         }
@@ -105,30 +118,11 @@ fn handle_capture(info: *Info) void {
             if (cd.*.buffer) |_| {
                 // TODO break up data into smaller packets
                 // maybe, or maybe we should handle this in the audio lib
-                var cap_data: capture.CaptureData = cap_data_encode(g_alloc, cd.*) catch |err| {
+                const cap_data: capture.CaptureData = cap_data_encode(g_alloc, cd.*) catch |err| {
                     std.debug.print("failed to encode capture_data: {any}\n", .{err});
                     continue;
                 };
-                defer cap_data.deinit();
-                const marshal_data: []const u8 = cap_data.marshal() catch |err| {
-                    std.debug.print("failed to marshal cap_datature_data: {any}\n", .{err});
-                    continue;
-                };
-                defer cap_data.alloc.free(marshal_data);
-                if (chebi.message.Message.init_with_body(
-                    g_alloc,
-                    info.conf.topic,
-                    marshal_data,
-                    .text,
-                )) |msg| {
-                    var local_msg: chebi.message.Message = msg;
-                    info.c.write_msg(&local_msg) catch |err| {
-                        std.debug.print("write cap_datature msg failed: {any}\n", .{err});
-                    };
-                    local_msg.deinit();
-                } else |err| {
-                    std.debug.print("init_with_body failed: {any}\n", .{err});
-                }
+                g_info.ring.write(cap_data, true) catch unreachable;
             }
         }
     }
@@ -199,9 +193,9 @@ pub fn main() !void {
         try create_playback();
     }
     // broadcast thread
-    //_ = try std.Thread.spawn(.{
-    //    .allocator = g_alloc,
-    //}, handle_ring_buffer_data, .{&g_info});
+    _ = try std.Thread.spawn(.{
+        .allocator = g_alloc,
+    }, handle_ring_buffer_data, .{&g_info});
 
     while (g_info.running) {
         var msg = try g_info.c.next_msg();
