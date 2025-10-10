@@ -5,6 +5,22 @@
 #include <math.h>
 #include <stdint.h>
 
+// https://www.sounddevices.com/32-bit-float-files-explained/
+// TODO add test to verify these values.
+struct db_range get_db_range(ma_format format) {
+  struct db_range result = {
+      .min = 0,
+      .max = 0,
+  };
+  const double max_sample = get_max_sample(format);
+  if (max_sample == 0) {
+    return result;
+  }
+  result.min = 20 * log(1 / max_sample);
+  result.max = 20 * log(max_sample / max_sample);
+  return result;
+}
+
 double get_max_sample(ma_format format) {
   switch (format) {
   case ma_format_f32: {

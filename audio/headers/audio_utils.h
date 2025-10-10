@@ -5,6 +5,19 @@
 #include <stdbool.h>
 
 /**
+ * Structure to hold the DB range values.
+ */
+struct db_range {
+  int min;
+  int max;
+};
+
+/**
+ * Get the DB range for the format.
+ */
+struct db_range get_db_range(ma_format format);
+
+/**
  * Get the max sample size for the given format.
  */
 double get_max_sample(ma_format format);
