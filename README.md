@@ -31,7 +31,9 @@ External Packages:
 
 ## Demo
 
-The demo audio is a little choppy at the moment.
-I'm trying to figure out if it's related to my auto-config dB threshold algo on the capture side or maybe if I need to buffer the data on the playback side.
+Simple demo of running a playback_only and capture_only programs sending audio over my message bus.
+Using a ring buffer to prevent choppy audio.
 
-https://github.com/user-attachments/assets/89ebbc52-6cb9-45a4-a79c-7e4b2a738324
+https://github.com/user-attachments/assets/0bbaebc0-5c5d-4949-b16f-e91eee3ea318
+
+
