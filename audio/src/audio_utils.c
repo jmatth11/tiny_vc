@@ -123,16 +123,19 @@ double calculate_rms(const void *input, const size_t len,
     return rms_uint8(input, len);
   }
   case ma_format_s16: {
-    return rms_int16(input, len);
+    // len is in uint8_t so we need to convert.
+    return rms_int16(input, len / 2.0);
   }
   case ma_format_s24: {
     return rms_int24(input, len);
   }
   case ma_format_s32: {
-    return rms_int32(input, len);
+    // len is in uint8_t so we need to convert.
+    return rms_int32(input, len / 4.0);
   }
   case ma_format_f32: {
-    return rms_float32(input, len);
+    // len is in uint8_t so we need to convert.
+    return rms_float32(input, len / 4.0);
   }
   default: {
     return 0.0;

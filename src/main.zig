@@ -64,14 +64,10 @@ fn cap_data_decode(cap: capture.CaptureData, out: *audio.capture_data_t) void {
     out.buffer = cap.buffer.ptr;
 }
 
-// TODO this isn't really working.
-// it runs, but the playback is basically non-existent
 fn handle_ring_buffer_data(info: *Info) void {
     while (info.running) {
         const items_opt = info.ring.read_when_full(g_alloc, std.time.ns_per_s * 1) catch unreachable;
-        std.debug.print("read unblock\n", .{});
         if (items_opt) |items| {
-            std.debug.print("read unblock with items\n", .{});
             defer g_alloc.free(items);
             for (items) |*cap| {
                 defer cap.*.deinit();
@@ -85,8 +81,8 @@ fn handle_ring_buffer_data(info: *Info) void {
                     info.conf.topic,
                     marshal_data,
                     .text,
-                )) |msg| {
-                    var local_msg: chebi.message.Message = msg;
+                )) |*msg| {
+                    var local_msg: chebi.message.Message = msg.*;
                     info.c.write_msg(&local_msg) catch |err| {
                         std.debug.print("write cap_datature msg failed: {any}\n", .{err});
                     };
@@ -116,8 +112,6 @@ fn handle_capture(info: *Info) void {
         if (cd_opt) |*cd| {
             defer audio.capture_data_destroy(@ptrCast(cd));
             if (cd.*.buffer) |_| {
-                // TODO break up data into smaller packets
-                // maybe, or maybe we should handle this in the audio lib
                 const cap_data: capture.CaptureData = cap_data_encode(g_alloc, cd.*) catch |err| {
                     std.debug.print("failed to encode capture_data: {any}\n", .{err});
                     continue;
@@ -188,14 +182,14 @@ pub fn main() !void {
 
     if (conf.capture_only) {
         try create_capture();
+        // broadcast thread
+        _ = try std.Thread.spawn(.{
+            .allocator = g_alloc,
+        }, handle_ring_buffer_data, .{&g_info});
     }
     if (conf.playback_only) {
         try create_playback();
     }
-    // broadcast thread
-    _ = try std.Thread.spawn(.{
-        .allocator = g_alloc,
-    }, handle_ring_buffer_data, .{&g_info});
 
     while (g_info.running) {
         var msg = try g_info.c.next_msg();
@@ -207,7 +201,6 @@ pub fn main() !void {
             var data: capture.CaptureData = .init(g_alloc);
             defer data.deinit();
             try data.unmarshal(payload);
-            //g_info.ring.write(data, true) catch unreachable;
             var cd: audio.capture_data_t = .{};
             cap_data_decode(data, &cd);
             const queue_result: audio.ma_result = audio.playback_queue(g_info.play, &cd);

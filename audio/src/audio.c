@@ -5,8 +5,8 @@
 #include "audio_capture.h"
 #include "audio_playback.h"
 #include "audio_types.h"
-#include "miniaudio.h"
 #include "audio_utils.h"
+#include "miniaudio.h"
 
 #include <float.h>
 #include <stdbool.h>
@@ -30,8 +30,7 @@ struct playback_t {
   ma_pcm_rb ring_buffer;
 };
 
-#define FORMAT_TYPE int16_t
-const ma_format STD_FORMAT = ma_format_s16;
+const ma_format STD_FORMAT = ma_format_f32;
 static double CAP_THRESHOLD = -13.0;
 static double cap_sample_counter = 0;
 
@@ -72,33 +71,33 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   } else if (dBFS < CAP_THRESHOLD) {
     return;
   }
-  void *buffer = NULL;
   ma_uint32 local_frame_count = frameCount;
-  ma_result result =
-      ma_pcm_rb_acquire_write(&s->ring_buffer, &local_frame_count, &buffer);
-  if (result != MA_SUCCESS) {
-    fprintf(stderr,
-            "failed to acquire write for ring buffer -- error code(%d).\n",
-            result);
-    return;
-  }
-  if (local_frame_count != frameCount) {
-    fprintf(stderr,
-            "frameCount(%d) was higher than available rb_frameCount(%d) -- "
-            "dropping data.\n",
-            frameCount, local_frame_count);
-    (void)ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
-    return;
-  }
-
-  ma_copy_pcm_frames(buffer, pInput, local_frame_count, pDevice->capture.format,
-                     pDevice->capture.channels);
-  result = ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
-  if (result != MA_SUCCESS) {
-    fprintf(stderr,
-            "failed to commit write to ring buffer -- error code(%d).\n",
-            result);
-    return;
+  ma_uint32 framesWritten = 0;
+  while (framesWritten < frameCount) {
+    void *buffer = NULL;
+    ma_result result =
+        ma_pcm_rb_acquire_write(&s->ring_buffer, &local_frame_count, &buffer);
+    if (result != MA_SUCCESS) {
+      fprintf(stderr,
+              "failed to acquire write for ring buffer -- error code(%d).\n",
+              result);
+      return;
+    }
+    if (local_frame_count == 0) {
+      return;
+    }
+    const float *data_offset = ma_offset_pcm_frames_const_ptr_f32(
+        (const float *)pInput, framesWritten, s->device.capture.channels);
+    ma_copy_pcm_frames(buffer, data_offset, local_frame_count, pDevice->capture.format,
+                       pDevice->capture.channels);
+    result = ma_pcm_rb_commit_write(&s->ring_buffer, local_frame_count);
+    if (result != MA_SUCCESS) {
+      fprintf(stderr,
+              "failed to commit write to ring buffer -- error code(%d).\n",
+              result);
+      return;
+    }
+    framesWritten += local_frame_count;
   }
 }
 
@@ -206,7 +205,9 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
   (void)pInput;
   (void)frameCount;
   struct playback_t *p = (struct playback_t *)pDevice->pUserData;
-  ma_uint32 frames = p->sizeInFrames * p->periodSize;
+  // important to only use framecount of playback as our cap
+  // other values resulted in segmentation faults
+  ma_uint32 frames = frameCount;
   void *buffer = NULL;
   ma_result result = ma_pcm_rb_acquire_read(&p->ring_buffer, &frames, &buffer);
   if (result != MA_SUCCESS || buffer == NULL) {
@@ -238,7 +239,8 @@ static void playback_data_callback(ma_device *pDevice, void *pOutput,
   }
   // convert to decimals
   // https://en.wikipedia.org/wiki/DBFS
-  const double dBFS = audio_get_decibels(raw_data, frames, pDevice->playback.format, pDevice->playback.channels);
+  const double dBFS = audio_get_decibels(
+      raw_data, frames, pDevice->playback.format, pDevice->playback.channels);
   // decibels must be certain level before we process it
   printf("dBFS = %f\n", dBFS);
   ma_copy_pcm_frames(pOutput, raw_data, frames, pDevice->playback.format,
@@ -318,20 +320,34 @@ ma_result playback_start(struct playback_t *s) {
  * @param cd The structure to use for playback data.
  * @return ma_result enum.
  */
-ma_result playback_queue(struct playback_t *s, const struct capture_data_t *cd) {
+ma_result playback_queue(struct playback_t *s,
+                         const struct capture_data_t *cd) {
   ma_uint32 frames = cd->sizeInFrames;
-  void *buffer = NULL;
-  ma_result result = ma_pcm_rb_acquire_write(&s->ring_buffer, &frames, &buffer);
-  if (result != MA_SUCCESS) {
-    fprintf(stderr,
-            "failed to acquire write for ring buffer -- error code(%d).\n",
-            result);
-    return result;
+  ma_uint32 framesWritten = 0;
+  while (framesWritten < cd->sizeInFrames) {
+    void *buffer = NULL;
+    ma_result result =
+        ma_pcm_rb_acquire_write(&s->ring_buffer, &frames, &buffer);
+    if (result != MA_SUCCESS) {
+      fprintf(stderr,
+              "failed to acquire write for ring buffer -- error code(%d).\n",
+              result);
+      return result;
+    }
+    if (frames == 0) {
+      break;
+    }
+    const float *data_offset = ma_offset_pcm_frames_const_ptr_f32(
+        (const float *)cd->buffer, framesWritten, s->device.playback.channels);
+    ma_copy_pcm_frames(buffer, data_offset, frames, cd->format, cd->channels);
+    result = ma_pcm_rb_commit_write(&s->ring_buffer, frames);
+    if (result != MA_SUCCESS) {
+      fprintf(stderr,
+              "failed to commit write for ring buffer -- error code(%d).\n",
+              result);
+      return result;
+    }
+    framesWritten += frames;
   }
-  if (frames != cd->sizeInFrames) {
-    fprintf(stderr, "playback: incoming frames (%d); ring_buffer frames (%d)\n",
-            cd->sizeInFrames, frames);
-  }
-  ma_copy_pcm_frames(buffer, cd->buffer, frames, cd->format, cd->channels);
-  return ma_pcm_rb_commit_write(&s->ring_buffer, frames);
+  return MA_SUCCESS;
 }
